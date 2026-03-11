@@ -11,14 +11,14 @@ prd_reference: /Users/thaleslaray/.claude/plans/elegant-knitting-star.md
 ## Overview
 
 ### Problema
-Vendedores do NossoCRM atualmente precisam alternar entre o CRM e múltiplos aplicativos externos (WhatsApp, Instagram) para se comunicar com clientes. Isso resulta em:
+Vendedores do GenialCRM atualmente precisam alternar entre o CRM e múltiplos aplicativos externos (WhatsApp, Instagram) para se comunicar com clientes. Isso resulta em:
 - Perda de contexto e histórico de conversas
 - Tempo desperdiçado alternando entre aplicativos
 - Dificuldade em manter registro centralizado de interações
 - Impossibilidade de vincular conversas a negociações (deals) existentes
 
 ### Solução
-Criar um **Inbox Unificado** dentro do NossoCRM onde vendedores podem:
+Criar um **Inbox Unificado** dentro do GenialCRM onde vendedores podem:
 - Visualizar todas as conversas de todos os canais em um único lugar
 - Enviar e receber mensagens diretamente do CRM
 - Ver automaticamente qual contato/deal está associado à conversa
@@ -314,7 +314,7 @@ Criar um **Inbox Unificado** dentro do NossoCRM onde vendedores podem:
 
 ## Dependencies
 
-### Dependências Internas (NossoCRM)
+### Dependências Internas (GenialCRM)
 1. **Contatos**: Sistema de contatos existente para vinculação
 2. **Deals**: Sistema de deals existente para associação
 3. **Boards**: Sistema de boards existente para vincular a Business Units

@@ -1,4 +1,4 @@
-# Public API (Integrações) — NossoCRM
+# Public API (Integrações) — GenialCRM
 
 Este documento é o guia **humano** de integração (produto em primeiro lugar).  
 O contrato técnico completo está no OpenAPI:

@@ -188,7 +188,10 @@ export function MessageComposerModal({
     const [message, setMessage] = useState('');
     const [copied, setCopied] = useState<'subject' | 'message' | 'contact' | null>(null);
     const [isRewriting, setIsRewriting] = useState(false);
+    const [isSending, setIsSending] = useState(false);
     const [rewriteError, setRewriteError] = useState<string | null>(null);
+    const [sendError, setSendError] = useState<string | null>(null);
+    const [sendInfo, setSendInfo] = useState<string | null>(null);
     const [aiBadge, setAiBadge] = useState(false);
 
     const phone = useMemo(() => formatPhoneForWhatsApp(contactPhone), [contactPhone]);
@@ -203,7 +206,10 @@ export function MessageComposerModal({
 
         setCopied(null);
         setRewriteError(null);
+        setSendError(null);
+        setSendInfo(null);
         setIsRewriting(false);
+        setIsSending(false);
         setAiBadge(false);
         setSubject(typeof initialSubject === 'string' ? initialSubject : '');
         const nextMsg = typeof initialMessage === 'string' ? initialMessage : '';
@@ -231,14 +237,45 @@ export function MessageComposerModal({
         }
     };
 
-    const handleOpen = () => {
+    const handleOpen = async () => {
         if (channel === 'WHATSAPP') {
             if (!phone) return;
             const formatted = formatForWhatsApp(message);
             // Keep textarea consistent with what will be sent.
             if (formatted && formatted !== message) setMessage(formatted);
-            window.open(buildWhatsAppUrl(phone, formatted), '_blank');
-            onExecuted?.({ channel, message: formatted });
+            setSendError(null);
+            setSendInfo(null);
+            setIsSending(true);
+
+            try {
+                const response = await fetch('/api/integrations/whatsapp/evolution/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, message: formatted }),
+                });
+
+                const json = await response.json().catch(() => ({}));
+                if (response.ok) {
+                    setSendInfo('Mensagem enviada via Evolution API.');
+                    onExecuted?.({ channel, message: formatted });
+                    return;
+                }
+
+                // Not configured: fallback to WhatsApp Web to avoid blocking the user.
+                if (response.status === 409) {
+                    window.open(buildWhatsAppUrl(phone, formatted), '_blank');
+                    setSendInfo('Evolution API nao configurada. Abrimos o WhatsApp Web como fallback.');
+                    onExecuted?.({ channel, message: formatted });
+                    return;
+                }
+
+                const msg = typeof json?.error === 'string' ? json.error : 'Nao foi possivel enviar via Evolution API.';
+                setSendError(msg);
+            } catch {
+                setSendError('Nao foi possivel enviar via Evolution API.');
+            } finally {
+                setIsSending(false);
+            }
             return;
         }
 
@@ -340,7 +377,7 @@ export function MessageComposerModal({
                                     <button
                                         type="button"
                                         onClick={handleOpen}
-                                        disabled={!canOpen}
+                                        disabled={!canOpen || isSending}
                                         className="p-1 rounded-md hover:bg-slate-50 dark:hover:bg-white/5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                         title={channel === 'WHATSAPP' ? 'Abrir no WhatsApp' : 'Abrir no email'}
                                     >
@@ -444,15 +481,15 @@ export function MessageComposerModal({
                     <button
                         type="button"
                         onClick={handleOpen}
-                        disabled={!canOpen}
+                        disabled={!canOpen || isSending}
                         className={
                             channel === 'WHATSAPP'
                                 ? 'px-4 py-2 rounded-lg text-sm font-semibold bg-green-500 hover:bg-green-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2'
                                 : 'px-4 py-2 rounded-lg text-sm font-semibold bg-cyan-500 hover:bg-cyan-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2'
                         }
                     >
-                        <ExternalLink size={16} />
-                        {channel === 'WHATSAPP' ? 'Abrir no WhatsApp' : 'Abrir no email'}
+                        {isSending ? <Loader2 size={16} className="animate-spin" /> : <ExternalLink size={16} />}
+                        {channel === 'WHATSAPP' ? (isSending ? 'Enviando...' : 'Enviar no WhatsApp') : 'Abrir no email'}
                     </button>
                 </div>
 
@@ -460,6 +497,17 @@ export function MessageComposerModal({
                     <div className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-950/20 p-3">
                         <AlertCircle size={16} className="text-red-600 dark:text-red-400 mt-0.5" />
                         <p className="text-sm text-red-700 dark:text-red-300">{rewriteError}</p>
+                    </div>
+                )}
+                {sendError && (
+                    <div className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-950/20 p-3">
+                        <AlertCircle size={16} className="text-red-600 dark:text-red-400 mt-0.5" />
+                        <p className="text-sm text-red-700 dark:text-red-300">{sendError}</p>
+                    </div>
+                )}
+                {sendInfo && (
+                    <div className="rounded-lg border border-emerald-200 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-950/20 p-3">
+                        <p className="text-sm text-emerald-700 dark:text-emerald-300">{sendInfo}</p>
                     </div>
                 )}
             </div>

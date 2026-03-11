@@ -1,4 +1,4 @@
-# AGENTS.md — NossoCRM
+# AGENTS.md — GenialCRM
 
 ## Commands
 - **Dev**: `npm run dev`

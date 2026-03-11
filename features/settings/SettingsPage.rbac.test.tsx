@@ -69,6 +69,14 @@ vi.mock('./components/McpSection', () => ({
   ),
 }))
 
+vi.mock('./components/WhatsAppChannelsSection', () => ({
+  WhatsAppChannelsSection: () => (
+    <div>
+      <h3>Canais de Mensagem</h3>
+    </div>
+  ),
+}))
+
 import SettingsPage from './SettingsPage'
 import { useAuth } from '@/context/AuthContext'
 
@@ -129,7 +137,13 @@ describe('SettingsPage RBAC', () => {
     expect(webhooksSubTab).toBeInTheDocument()
     expect(mcpSubTab).toBeInTheDocument()
 
-    // Default é API
+    const channelsSubTab = await screen.findByRole('button', { name: /^Canais$/i })
+    expect(channelsSubTab).toBeInTheDocument()
+
+    // Default é Canais
+    expect(await screen.findByRole('heading', { name: /^Canais de Mensagem$/i })).toBeInTheDocument()
+
+    fireEvent.click(apiSubTab)
     expect(await screen.findByRole('heading', { name: /^API \(Integrações\)$/i })).toBeInTheDocument()
 
     fireEvent.click(webhooksSubTab)
