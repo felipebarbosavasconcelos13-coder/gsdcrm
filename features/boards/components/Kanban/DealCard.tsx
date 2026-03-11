@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import Image from 'next/image';
 import { DealView } from '@/types';
 import { Building2, Hourglass, MessageCircle, Trophy, XCircle } from 'lucide-react';
 import { ActivityStatusIcon } from './ActivityStatusIcon';
 import { priorityAriaLabelPtBr } from '@/lib/utils/priority';
 import { toWhatsAppPhone } from '@/lib/phone';
-import { useOptionalToast } from '@/context/ToastContext';
 
 interface DealCardProps {
   deal: DealView;
@@ -14,12 +13,7 @@ interface DealCardProps {
   activityStatus: string;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent, id: string, title: string) => void;
-  /** Callback de seleÃ§Ã£o do deal (mantido estÃ¡vel via useCallback no pai para permitir memoizaÃ§Ã£o) */
   onSelect: (dealId: string) => void;
-  /**
-   * Performance: boolean derivado por-card evita prop global mutÃ¡vel.
-   * Isso reduz re-render em listas grandes quando o usuÃ¡rio abre/fecha o menu.
-   */
   isMenuOpen: boolean;
   setOpenMenuId: (id: string | null) => void;
   onQuickAddActivity: (
@@ -27,18 +21,19 @@ interface DealCardProps {
     type: 'CALL' | 'MEETING' | 'EMAIL',
     dealTitle: string
   ) => void;
+  onOpenWhatsAppChat?: (input: {
+    dealId: string;
+    dealTitle: string;
+    contactName: string;
+    contactPhone: string;
+  }) => void;
   setLastMouseDownDealId: (id: string | null) => void;
-  /** Callback to open move-to-stage modal for keyboard accessibility */
   onMoveToStage?: (dealId: string) => void;
 }
 
-// Check if deal is closed (won or lost)
 const isDealClosed = (deal: DealView) => deal.isWon || deal.isLost;
-
-// Get priority label for accessibility (PT-BR)
 const getPriorityLabel = (priority: string | undefined) => priorityAriaLabelPtBr(priority);
 
-// Get initials from name
 const getInitials = (name: string) => {
   return name
     .split(' ')
@@ -68,12 +63,11 @@ const DealCardComponent: React.FC<DealCardProps> = ({
   isMenuOpen,
   setOpenMenuId,
   onQuickAddActivity,
+  onOpenWhatsAppChat,
   setLastMouseDownDealId,
   onMoveToStage,
 }) => {
   const [localDragging, setLocalDragging] = useState(false);
-  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
-  const { addToast } = useOptionalToast();
   const isClosed = isDealClosed(deal);
 
   const handleToggleMenu = (e: React.MouseEvent) => {
@@ -88,56 +82,26 @@ const DealCardComponent: React.FC<DealCardProps> = ({
   const resolvedPhone = deal.contactPhone || contactPhoneOverride || '';
   const whatsappUrl = buildWhatsAppUrl(resolvedPhone, deal.contactName);
 
-  const handleOpenWhatsApp = async (e: React.MouseEvent) => {
+  const handleOpenWhatsApp = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!whatsappUrl) return;
 
-    const phoneDigits = toWhatsAppPhone(resolvedPhone);
-    const message = deal.contactName ? `Oi, ${deal.contactName}! Tudo bem?` : 'Oi! Tudo bem?';
-
-    if (!phoneDigits) {
-      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    if (onOpenWhatsAppChat) {
+      onOpenWhatsAppChat({
+        dealId: deal.id,
+        dealTitle: deal.title || '',
+        contactName: deal.contactName || 'Contato',
+        contactPhone: resolvedPhone,
+      });
       return;
     }
 
-    setIsSendingWhatsApp(true);
-    try {
-      const response = await fetch('/api/integrations/whatsapp/evolution/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: `+${phoneDigits}`,
-          message,
-        }),
-      });
-
-      if (response.ok) {
-        addToast('Mensagem enviada via Evolution API.', 'success');
-        return;
-      }
-
-      // Not configured in this org: fallback to WhatsApp Web.
-      if (response.status === 409) {
-        window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
-        addToast('Evolution API não configurada. Abrimos o WhatsApp Web.', 'info');
-        return;
-      }
-
-      const json = await response.json().catch(() => null);
-      const apiError = json && typeof json.error === 'string' ? json.error : 'Falha ao enviar via Evolution API.';
-      addToast(apiError, 'error');
-    } catch {
-      addToast('Falha ao enviar via Evolution API.', 'error');
-    } finally {
-      setIsSendingWhatsApp(false);
-    }
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleDragStart = (e: React.DragEvent) => {
     setLocalDragging(true);
     e.dataTransfer.setData('dealId', deal.id);
-    // Fallback mapping when optimistic temp id gets replaced mid-drag by a refetch.
-    // Do not log title; it can contain PII.
     e.dataTransfer.setData('dealTitle', deal.title || '');
     e.dataTransfer.effectAllowed = 'move';
     onDragStart(e, deal.id, deal.title || '');
@@ -147,7 +111,6 @@ const DealCardComponent: React.FC<DealCardProps> = ({
     setLocalDragging(false);
   };
 
-  // Determine card styling based on won/lost status
   const getCardClasses = () => {
     const baseClasses = `
       p-3 rounded-lg border-l-4 border-y border-r
@@ -155,20 +118,19 @@ const DealCardComponent: React.FC<DealCardProps> = ({
     `;
 
     if (deal.isWon) {
-      return `${baseClasses} 
-        bg-green-50 dark:bg-green-900/20 
+      return `${baseClasses}
+        bg-green-50 dark:bg-green-900/20
         border-green-200 dark:border-green-700/50
         ${localDragging || isDragging ? 'opacity-50 rotate-2 scale-95' : ''}`;
     }
 
     if (deal.isLost) {
-      return `${baseClasses} 
-        bg-red-50 dark:bg-red-900/20 
-        border-red-200 dark:border-red-700/50 
+      return `${baseClasses}
+        bg-red-50 dark:bg-red-900/20
+        border-red-200 dark:border-red-700/50
         ${localDragging || isDragging ? 'opacity-50 rotate-2 scale-95' : 'opacity-70'}`;
     }
 
-    // Default - open deal
     return `${baseClasses}
       border-slate-200 dark:border-slate-700/50
       ${localDragging || isDragging ? 'bg-green-100 dark:bg-green-900 opacity-50 rotate-2 scale-95' : 'bg-white dark:bg-slate-800 opacity-100'}
@@ -176,36 +138,29 @@ const DealCardComponent: React.FC<DealCardProps> = ({
     `;
   };
 
-  // Get border-left color class based on status
   const getBorderLeftClass = () => {
     if (deal.isWon) return '!border-l-green-500';
     if (deal.isLost) return '!border-l-red-500';
-    // Priority-based colors for open deals
     if (deal.priority === 'high') return '!border-l-red-500';
     if (deal.priority === 'medium') return '!border-l-amber-500';
     return '!border-l-blue-500';
   };
 
-  // Build accessible label including visible text (tags)
   const getAriaLabel = () => {
     const parts: string[] = [];
 
-    // Status badges (visible text)
     if (deal.isWon) parts.push('ganho');
     if (deal.isLost) parts.push('perdido');
 
-    // Tags (visible text) - include all shown tags
     const shownTags = deal.tags.slice(0, isClosed ? 1 : 2);
     if (shownTags.length > 0) {
       parts.push(...shownTags);
     }
 
-    // Main content
     parts.push(deal.title);
     if (deal.companyName) parts.push(deal.companyName);
     parts.push(`$${deal.value.toLocaleString()}`);
 
-    // Additional context
     const priority = getPriorityLabel(deal.priority);
     if (priority) parts.push(priority);
     if (isRotting && !isClosed) parts.push('estagnado');
@@ -237,49 +192,44 @@ const DealCardComponent: React.FC<DealCardProps> = ({
       aria-label={getAriaLabel()}
       className={`${getCardClasses()} ${getBorderLeftClass()}`}
     >
-      {/* Won Badge */}
       {deal.isWon && (
         <div
           className="absolute -top-2 -right-2 bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-200 p-1 rounded-full shadow-sm z-10 flex items-center gap-0.5"
-          aria-label="NegÃ³cio ganho"
+          aria-label="Negocio ganho"
         >
           <Trophy size={12} aria-hidden="true" />
         </div>
       )}
 
-      {/* Lost Badge */}
       {deal.isLost && (
         <div
           className="absolute -top-2 -right-2 bg-red-100 dark:bg-red-800 text-red-700 dark:text-red-200 p-1 rounded-full shadow-sm z-10 flex items-center gap-0.5"
-          aria-label={deal.lossReason ? `Perdido: ${deal.lossReason}` : 'NegÃ³cio perdido'}
+          aria-label={deal.lossReason ? `Perdido: ${deal.lossReason}` : 'Negocio perdido'}
         >
           <XCircle size={12} aria-hidden="true" />
         </div>
       )}
 
-      {/* Rotting indicator - only for open deals */}
       {isRotting && !isClosed && (
         <div
           className="absolute -top-2 -right-2 bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 p-1 rounded-full shadow-sm z-10"
-          aria-label="NegÃ³cio estagnado, mais de 10 dias sem atualizaÃ§Ã£o"
+          aria-label="Negocio estagnado"
         >
           <Hourglass size={12} aria-hidden="true" />
         </div>
       )}
 
       <div className="flex gap-1 mb-2 flex-wrap">
-        {/* Won/Lost status badge */}
         {deal.isWon && (
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-800/40 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700">
-            âœ“ GANHO
+            GANHO
           </span>
         )}
         {deal.isLost && (
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-800/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700">
-            âœ— PERDIDO
+            PERDIDO
           </span>
         )}
-        {/* Regular tags */}
         {deal.tags.slice(0, isClosed ? 1 : 2).map((tag, index) => (
           <span
             key={`${deal.id}-tag-${index}`}
@@ -305,17 +255,17 @@ const DealCardComponent: React.FC<DealCardProps> = ({
             deal.owner.avatar ? (
               <Image
                 src={deal.owner.avatar}
-                alt={`ResponsÃ¡vel: ${deal.owner.name}`}
+                alt={`Responsavel: ${deal.owner.name}`}
                 width={20}
                 height={20}
                 className="w-5 h-5 rounded-full ring-1 ring-white dark:ring-slate-800"
-                title={`ResponsÃ¡vel: ${deal.owner.name}`}
+                title={`Responsavel: ${deal.owner.name}`}
                 unoptimized
               />
             ) : (
               <div
                 className="w-5 h-5 rounded-full bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300 flex items-center justify-center text-[9px] font-bold ring-1 ring-white dark:ring-slate-800"
-                title={`ResponsÃ¡vel: ${deal.owner.name}`}
+                title={`Responsavel: ${deal.owner.name}`}
               >
                 {getInitials(deal.owner.name)}
               </div>
@@ -330,9 +280,9 @@ const DealCardComponent: React.FC<DealCardProps> = ({
           <button
             type="button"
             onClick={handleOpenWhatsApp}
-            disabled={!whatsappUrl || isSendingWhatsApp}
-            title={whatsappUrl ? (isSendingWhatsApp ? 'Enviando via Evolution API...' : 'Enviar WhatsApp') : 'Contato sem telefone para WhatsApp'}
-            aria-label={whatsappUrl ? `Enviar WhatsApp para ${deal.contactName}` : 'Contato sem telefone para WhatsApp'}
+            disabled={!whatsappUrl}
+            title={whatsappUrl ? 'Abrir chat WhatsApp' : 'Contato sem telefone para WhatsApp'}
+            aria-label={whatsappUrl ? `Abrir chat WhatsApp para ${deal.contactName}` : 'Contato sem telefone para WhatsApp'}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:text-slate-400 dark:hover:text-emerald-400 dark:hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <MessageCircle size={16} />
@@ -354,9 +304,4 @@ const DealCardComponent: React.FC<DealCardProps> = ({
   );
 };
 
-/**
- * Performance: `DealCard` fica em lista grande (Kanban).
- * Usamos `React.memo` para evitar re-render de TODOS os cards quando apenas o menu de 1 deal muda.
- * Isso depende de props estÃ¡veis do pai (ex.: `onSelect` via useCallback e `isMenuOpen` por-card).
- */
 export const DealCard = React.memo(DealCardComponent);

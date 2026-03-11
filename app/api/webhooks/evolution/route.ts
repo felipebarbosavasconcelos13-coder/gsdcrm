@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+﻿import { NextResponse } from 'next/server';
 import { toWhatsAppPhone } from '@/lib/phone';
+import { createStaticAdminClient } from '@/lib/supabase/staticAdminClient';
 
 function getTextFromMessageNode(message: any): string {
   if (!message || typeof message !== 'object') return '';
@@ -12,6 +13,58 @@ function getTextFromMessageNode(message: any): string {
 
 function normalizeEvolutionEventName(raw: unknown) {
   return String(raw ?? '').trim().toLowerCase().replace(/_/g, '.');
+}
+
+function pickInstanceName(raw: any): string {
+  return String(
+    raw?.instance ??
+      raw?.instanceName ??
+      raw?.instance_name ??
+      raw?.data?.instance ??
+      raw?.data?.instanceName ??
+      ''
+  ).trim();
+}
+
+async function persistInboundMessage(input: {
+  instanceName: string;
+  phone: string;
+  contactName: string;
+  message: string;
+  externalMessageId: string;
+  metadata: unknown;
+}) {
+  if (!input.instanceName) return;
+
+  try {
+    const admin = createStaticAdminClient();
+
+    const { data: connection } = await admin
+      .from('organization_whatsapp_connections')
+      .select('organization_id')
+      .eq('provider', 'evolution')
+      .eq('instance_name', input.instanceName)
+      .eq('active', true)
+      .maybeSingle();
+
+    if (!connection?.organization_id) return;
+
+    await admin.from('whatsapp_messages').upsert(
+      {
+        organization_id: connection.organization_id,
+        phone: input.phone,
+        contact_name: input.contactName,
+        direction: 'in',
+        message: input.message || 'Mensagem recebida via WhatsApp (sem texto).',
+        provider: 'evolution',
+        external_message_id: input.externalMessageId,
+        metadata: input.metadata ?? {},
+      },
+      { onConflict: 'organization_id,external_message_id', ignoreDuplicates: true }
+    );
+  } catch {
+    // Best effort only: webhook forwarding should continue even if persistence fails.
+  }
 }
 
 export async function POST(req: Request) {
@@ -53,21 +106,30 @@ export async function POST(req: Request) {
     }
 
     const rawPhone = remoteJid.split('@')[0] ?? '';
-    const phone = toWhatsAppPhone(rawPhone);
-    if (!phone) {
+    const phoneDigits = toWhatsAppPhone(rawPhone);
+    if (!phoneDigits) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'Telefone invalido no evento.' }, { status: 202 });
     }
 
     const text = getTextFromMessageNode(messageNode);
     const pushName = String(data?.pushName ?? data?.messages?.[0]?.pushName ?? '').trim();
-    const externalEventId = String(key?.id ?? data?.id ?? `${Date.now()}-${phone}`).trim();
+    const externalEventId = String(key?.id ?? data?.id ?? `${Date.now()}-${phoneDigits}`).trim();
+
+    await persistInboundMessage({
+      instanceName: pickInstanceName(raw),
+      phone: `+${phoneDigits}`,
+      contactName: pushName || `WhatsApp ${phoneDigits}`,
+      message: text,
+      externalMessageId: externalEventId,
+      metadata: raw,
+    });
 
     const payload = {
       external_event_id: externalEventId,
-      contact_name: pushName || `WhatsApp ${phone}`,
-      phone: `+${phone}`,
+      contact_name: pushName || `WhatsApp ${phoneDigits}`,
+      phone: `+${phoneDigits}`,
       source: 'evolution-whatsapp',
-      deal_title: pushName ? `WhatsApp - ${pushName}` : `WhatsApp - ${phone}`,
+      deal_title: pushName ? `WhatsApp - ${pushName}` : `WhatsApp - ${phoneDigits}`,
       notes: text || 'Mensagem recebida via WhatsApp (sem texto).',
     };
 
