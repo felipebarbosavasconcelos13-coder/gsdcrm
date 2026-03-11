@@ -22,8 +22,57 @@ function pickInstanceName(raw: any): string {
       raw?.instance_name ??
       raw?.data?.instance ??
       raw?.data?.instanceName ??
+      raw?.data?.instance_name ??
       ''
   ).trim();
+}
+
+async function resolveOrganizationId(admin: ReturnType<typeof createStaticAdminClient>, instanceName: string) {
+  const normalized = instanceName.trim();
+  if (!normalized) return null;
+
+  const exact = await admin
+    .from('organization_whatsapp_connections')
+    .select('organization_id')
+    .eq('provider', 'evolution')
+    .eq('active', true)
+    .eq('instance_name', normalized)
+    .maybeSingle();
+
+  if (exact.data?.organization_id) return exact.data.organization_id as string;
+
+  const caseInsensitive = await admin
+    .from('organization_whatsapp_connections')
+    .select('organization_id')
+    .eq('provider', 'evolution')
+    .eq('active', true)
+    .ilike('instance_name', normalized)
+    .maybeSingle();
+
+  if (caseInsensitive.data?.organization_id) return caseInsensitive.data.organization_id as string;
+
+  const byConnectionName = await admin
+    .from('organization_whatsapp_connections')
+    .select('organization_id')
+    .eq('provider', 'evolution')
+    .eq('active', true)
+    .ilike('connection_name', normalized)
+    .maybeSingle();
+
+  if (byConnectionName.data?.organization_id) return byConnectionName.data.organization_id as string;
+
+  const fallbackSingle = await admin
+    .from('organization_whatsapp_connections')
+    .select('organization_id')
+    .eq('provider', 'evolution')
+    .eq('active', true)
+    .limit(2);
+
+  if ((fallbackSingle.data ?? []).length === 1) {
+    return fallbackSingle.data?.[0]?.organization_id ?? null;
+  }
+
+  return null;
 }
 
 async function persistInboundMessage(input: {
@@ -34,24 +83,14 @@ async function persistInboundMessage(input: {
   externalMessageId: string;
   metadata: unknown;
 }) {
-  if (!input.instanceName) return;
-
   try {
     const admin = createStaticAdminClient();
-
-    const { data: connection } = await admin
-      .from('organization_whatsapp_connections')
-      .select('organization_id')
-      .eq('provider', 'evolution')
-      .eq('instance_name', input.instanceName)
-      .eq('active', true)
-      .maybeSingle();
-
-    if (!connection?.organization_id) return;
+    const organizationId = await resolveOrganizationId(admin, input.instanceName);
+    if (!organizationId) return;
 
     await admin.from('whatsapp_messages').upsert(
       {
-        organization_id: connection.organization_id,
+        organization_id: organizationId,
         phone: input.phone,
         contact_name: input.contactName,
         direction: 'in',
