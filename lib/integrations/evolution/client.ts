@@ -1,4 +1,4 @@
-export type EvolutionConfig = {
+﻿export type EvolutionConfig = {
   baseUrl: string;
   apiKey: string;
   instance: string;
@@ -19,6 +19,26 @@ export function getEvolutionConfig(): EvolutionConfig | null {
   if (!baseUrl || !apiKey || !instance) return null;
 
   return { baseUrl, apiKey, instance };
+}
+
+function extractEvolutionError(payload: any, status: number) {
+  const candidate =
+    payload?.response?.message ??
+    payload?.response?.error ??
+    payload?.message ??
+    payload?.error ??
+    payload?.data?.message ??
+    payload?.data?.error ??
+    '';
+
+  const message = String(candidate || '').trim();
+  if (message) return message;
+
+  if (status === 401 || status === 403) return 'Falha de autenticacao na Evolution API (apikey).';
+  if (status === 404) return 'Instancia da Evolution nao encontrada.';
+  if (status === 422) return 'Numero ou payload invalido para envio de WhatsApp.';
+
+  return 'Falha ao enviar mensagem via Evolution API.';
 }
 
 export async function sendTextWithEvolution(input: EvolutionSendTextInput) {
@@ -56,7 +76,7 @@ export async function sendTextWithEvolution(input: EvolutionSendTextInput) {
     return {
       ok: false,
       status: response.status,
-      error: 'Falha ao enviar mensagem via Evolution API.',
+      error: extractEvolutionError(payload as any, response.status),
       payload,
     } as const;
   }

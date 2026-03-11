@@ -34,10 +34,7 @@ async function getUserOrgContext() {
   return { supabase, organizationId: profile.organization_id } as const;
 }
 
-async function getOrganizationConnection(
-  supabase: any,
-  organizationId: string
-) {
+async function getOrganizationConnection(supabase: any, organizationId: string) {
   const { data: connection } = await supabase
     .from('organization_whatsapp_connections')
     .select('instance_url, instance_name, api_key, active')
@@ -120,10 +117,12 @@ export async function POST(req: Request) {
     });
 
     if (!sent.ok) {
+      const details = `${sent.error} (status ${sent.status})`;
       return NextResponse.json(
         {
-          error: sent.error,
+          error: details,
           providerStatus: sent.status,
+          providerPayload: 'payload' in sent ? sent.payload : null,
         },
         { status: sent.status === 409 ? 409 : 502 }
       );
@@ -169,4 +168,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-
