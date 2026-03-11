@@ -425,7 +425,7 @@ export const WhatsAppChannelsSection: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setConfig((prev) => ({ ...prev, restoreEnabled: true }));
-                          addToast('Periodo de restauracao preparado. Salve para aplicar.', 'neutral');
+                          addToast('Periodo de restauracao preparado. Salve para aplicar.', 'info');
                         }}
                         className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                       >
