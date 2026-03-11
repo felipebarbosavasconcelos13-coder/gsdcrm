@@ -113,9 +113,43 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   setLastMouseDownDealId,
   onMoveDealToStage,
 }) => {
-  const { lifecycleStages } = useCRM();
+  const { lifecycleStages, contacts } = useCRM();
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const contactPhoneById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of contacts ?? []) {
+      if (c?.id) map.set(c.id, c.phone || '');
+    }
+    return map;
+  }, [contacts]);
   
+  const contactPhoneByEmail = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of contacts ?? []) {
+      const email = (c?.email || '').trim().toLowerCase();
+      if (email && c?.phone) map.set(email, c.phone);
+    }
+    return map;
+  }, [contacts]);
+
+  const contactPhoneByUniqueName = useMemo(() => {
+    const grouped = new Map<string, Set<string>>();
+    for (const c of contacts ?? []) {
+      const name = (c?.name || '').trim().toLowerCase();
+      const phone = (c?.phone || '').trim();
+      if (!name || !phone) continue;
+      if (!grouped.has(name)) grouped.set(name, new Set<string>());
+      grouped.get(name)!.add(phone);
+    }
+
+    const map = new Map<string, string>();
+    for (const [name, phones] of grouped.entries()) {
+      if (phones.size === 1) {
+        map.set(name, Array.from(phones)[0]);
+      }
+    }
+    return map;
+  }, [contacts]);
   // State for move-to-stage modal (keyboard accessibility alternative to drag-and-drop)
   const [moveToStageModal, setMoveToStageModal] = useState<{
     isOpen: boolean;
@@ -270,6 +304,15 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 <DealCard
                   key={deal.id}
                   deal={deal}
+                  contactPhoneOverride={
+                    deal.contactId
+                      ? (contactPhoneById.get(deal.contactId) || '')
+                      : (deal.contactEmail
+                          ? (contactPhoneByEmail.get((deal.contactEmail || '').trim().toLowerCase()) || '')
+                          : (deal.contactName && deal.contactName !== 'Sem Contato'
+                              ? (contactPhoneByUniqueName.get((deal.contactName || '').trim().toLowerCase()) || '')
+                              : ''))
+                  }
                   isRotting={
                     isDealRotting(deal) &&
                     !deal.isWon &&

@@ -9,6 +9,7 @@ import { useOptionalToast } from '@/context/ToastContext';
 
 interface DealCardProps {
   deal: DealView;
+  contactPhoneOverride?: string;
   isRotting: boolean;
   activityStatus: string;
   isDragging: boolean;
@@ -58,6 +59,7 @@ const buildWhatsAppUrl = (phoneRaw?: string, contactName?: string) => {
 
 const DealCardComponent: React.FC<DealCardProps> = ({
   deal,
+  contactPhoneOverride,
   isRotting,
   activityStatus,
   isDragging,
@@ -83,13 +85,14 @@ const DealCardComponent: React.FC<DealCardProps> = ({
     onQuickAddActivity(deal.id, type, deal.title);
   };
 
-  const whatsappUrl = buildWhatsAppUrl(deal.contactPhone, deal.contactName);
+  const resolvedPhone = deal.contactPhone || contactPhoneOverride || '';
+  const whatsappUrl = buildWhatsAppUrl(resolvedPhone, deal.contactName);
 
   const handleOpenWhatsApp = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!whatsappUrl) return;
 
-    const phoneDigits = toWhatsAppPhone(deal.contactPhone || '');
+    const phoneDigits = toWhatsAppPhone(resolvedPhone);
     const message = deal.contactName ? `Oi, ${deal.contactName}! Tudo bem?` : 'Oi! Tudo bem?';
 
     if (!phoneDigits) {
