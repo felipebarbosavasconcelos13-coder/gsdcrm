@@ -328,6 +328,7 @@ const CRMInnerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
           : undefined,
         contactName: deal.contactId ? (contactMap[deal.contactId]?.name || 'Sem Contato') : 'Sem Contato',
         contactEmail: deal.contactId ? (contactMap[deal.contactId]?.email || '') : '',
+        contactPhone: deal.contactId ? (contactMap[deal.contactId]?.phone || '') : '',
         stageLabel: stage?.label || 'Desconhecido',
         owner: (deal.ownerId === profile?.id || deal.ownerId === user?.id) ? {
           name: profile?.nickname || profile?.first_name || (user?.email?.split('@')[0]) || 'Eu',
@@ -390,6 +391,7 @@ const CRMInnerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
           contactId: deal.contactId || '',
           contactName: optimisticContactName,
           contactEmail: optimisticContactEmail,
+          contactPhone: (relatedData?.contact?.phone || '').trim(),
           stageLabel: optimisticStageLabel,
           clientCompanyName: optimisticCompanyName,
           // @deprecated
@@ -507,6 +509,7 @@ const CRMInnerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
             ...(createdDeal as any),
             contactName: optimisticContactName,
             contactEmail: optimisticContactEmail,
+            contactPhone: (relatedData?.contact?.phone || '').trim(),
             stageLabel: optimisticStageLabel,
             clientCompanyName: optimisticCompanyName,
             companyName: optimisticCompanyName,

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import Image from 'next/image';
 import { DealView } from '@/types';
-import { Building2, Hourglass, Trophy, XCircle } from 'lucide-react';
+import { Building2, Hourglass, MessageCircle, Trophy, XCircle } from 'lucide-react';
 import { ActivityStatusIcon } from './ActivityStatusIcon';
 import { priorityAriaLabelPtBr } from '@/lib/utils/priority';
+import { toWhatsAppPhone } from '@/lib/phone';
+import { useOptionalToast } from '@/context/ToastContext';
 
 interface DealCardProps {
   deal: DealView;
@@ -45,6 +47,15 @@ const getInitials = (name: string) => {
     .toUpperCase();
 };
 
+const buildWhatsAppUrl = (phoneRaw?: string, contactName?: string) => {
+  const phone = toWhatsAppPhone(phoneRaw || '');
+  if (!phone) return null;
+
+  const greeting = contactName ? `Oi, ${contactName}! ` : 'Oi! ';
+  const text = encodeURIComponent(`${greeting}Tudo bem?`);
+  return `https://wa.me/${phone}?text=${text}`;
+};
+
 const DealCardComponent: React.FC<DealCardProps> = ({
   deal,
   isRotting,
@@ -59,6 +70,8 @@ const DealCardComponent: React.FC<DealCardProps> = ({
   onMoveToStage,
 }) => {
   const [localDragging, setLocalDragging] = useState(false);
+  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
+  const { addToast } = useOptionalToast();
   const isClosed = isDealClosed(deal);
 
   const handleToggleMenu = (e: React.MouseEvent) => {
@@ -68,6 +81,53 @@ const DealCardComponent: React.FC<DealCardProps> = ({
 
   const handleQuickAdd = (type: 'CALL' | 'MEETING' | 'EMAIL') => {
     onQuickAddActivity(deal.id, type, deal.title);
+  };
+
+  const whatsappUrl = buildWhatsAppUrl(deal.contactPhone, deal.contactName);
+
+  const handleOpenWhatsApp = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!whatsappUrl) return;
+
+    const phoneDigits = toWhatsAppPhone(deal.contactPhone || '');
+    const message = deal.contactName ? `Oi, ${deal.contactName}! Tudo bem?` : 'Oi! Tudo bem?';
+
+    if (!phoneDigits) {
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    setIsSendingWhatsApp(true);
+    try {
+      const response = await fetch('/api/integrations/whatsapp/evolution/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: `+${phoneDigits}`,
+          message,
+        }),
+      });
+
+      if (response.ok) {
+        addToast('Mensagem enviada via Evolution API.', 'success');
+        return;
+      }
+
+      // Not configured in this org: fallback to WhatsApp Web.
+      if (response.status === 409) {
+        window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+        addToast('Evolution API não configurada. Abrimos o WhatsApp Web.', 'info');
+        return;
+      }
+
+      const json = await response.json().catch(() => null);
+      const apiError = json && typeof json.error === 'string' ? json.error : 'Falha ao enviar via Evolution API.';
+      addToast(apiError, 'error');
+    } catch {
+      addToast('Falha ao enviar via Evolution API.', 'error');
+    } finally {
+      setIsSendingWhatsApp(false);
+    }
   };
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -263,7 +323,17 @@ const DealCardComponent: React.FC<DealCardProps> = ({
           </span>
         </div>
 
-        <div className="flex items-center">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleOpenWhatsApp}
+            disabled={!whatsappUrl || isSendingWhatsApp}
+            title={whatsappUrl ? (isSendingWhatsApp ? 'Enviando via Evolution API...' : 'Enviar WhatsApp') : 'Contato sem telefone para WhatsApp'}
+            aria-label={whatsappUrl ? `Enviar WhatsApp para ${deal.contactName}` : 'Contato sem telefone para WhatsApp'}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:text-slate-400 dark:hover:text-emerald-400 dark:hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <MessageCircle size={16} />
+          </button>
           <ActivityStatusIcon
             status={activityStatus}
             type={deal.nextActivity?.type}
