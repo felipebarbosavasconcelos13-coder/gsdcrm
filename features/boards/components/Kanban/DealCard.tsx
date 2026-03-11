@@ -13,11 +13,11 @@ interface DealCardProps {
   activityStatus: string;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent, id: string, title: string) => void;
-  /** Callback de seleção do deal (mantido estável via useCallback no pai para permitir memoização) */
+  /** Callback de seleÃ§Ã£o do deal (mantido estÃ¡vel via useCallback no pai para permitir memoizaÃ§Ã£o) */
   onSelect: (dealId: string) => void;
   /**
-   * Performance: boolean derivado por-card evita prop global mutável.
-   * Isso reduz re-render em listas grandes quando o usuário abre/fecha o menu.
+   * Performance: boolean derivado por-card evita prop global mutÃ¡vel.
+   * Isso reduz re-render em listas grandes quando o usuÃ¡rio abre/fecha o menu.
    */
   isMenuOpen: boolean;
   setOpenMenuId: (id: string | null) => void;
@@ -116,7 +116,7 @@ const DealCardComponent: React.FC<DealCardProps> = ({
       // Not configured in this org: fallback to WhatsApp Web.
       if (response.status === 409) {
         window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
-        addToast('Evolution API n�o configurada. Abrimos o WhatsApp Web.', 'info');
+        addToast('Evolution API não configurada. Abrimos o WhatsApp Web.', 'info');
         return;
       }
 
@@ -238,7 +238,7 @@ const DealCardComponent: React.FC<DealCardProps> = ({
       {deal.isWon && (
         <div
           className="absolute -top-2 -right-2 bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-200 p-1 rounded-full shadow-sm z-10 flex items-center gap-0.5"
-          aria-label="Negócio ganho"
+          aria-label="NegÃ³cio ganho"
         >
           <Trophy size={12} aria-hidden="true" />
         </div>
@@ -248,7 +248,7 @@ const DealCardComponent: React.FC<DealCardProps> = ({
       {deal.isLost && (
         <div
           className="absolute -top-2 -right-2 bg-red-100 dark:bg-red-800 text-red-700 dark:text-red-200 p-1 rounded-full shadow-sm z-10 flex items-center gap-0.5"
-          aria-label={deal.lossReason ? `Perdido: ${deal.lossReason}` : 'Negócio perdido'}
+          aria-label={deal.lossReason ? `Perdido: ${deal.lossReason}` : 'NegÃ³cio perdido'}
         >
           <XCircle size={12} aria-hidden="true" />
         </div>
@@ -258,7 +258,7 @@ const DealCardComponent: React.FC<DealCardProps> = ({
       {isRotting && !isClosed && (
         <div
           className="absolute -top-2 -right-2 bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 p-1 rounded-full shadow-sm z-10"
-          aria-label="Negócio estagnado, mais de 10 dias sem atualização"
+          aria-label="NegÃ³cio estagnado, mais de 10 dias sem atualizaÃ§Ã£o"
         >
           <Hourglass size={12} aria-hidden="true" />
         </div>
@@ -268,12 +268,12 @@ const DealCardComponent: React.FC<DealCardProps> = ({
         {/* Won/Lost status badge */}
         {deal.isWon && (
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-800/40 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700">
-            ✓ GANHO
+            âœ“ GANHO
           </span>
         )}
         {deal.isLost && (
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-800/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700">
-            ✗ PERDIDO
+            âœ— PERDIDO
           </span>
         )}
         {/* Regular tags */}
@@ -302,17 +302,17 @@ const DealCardComponent: React.FC<DealCardProps> = ({
             deal.owner.avatar ? (
               <Image
                 src={deal.owner.avatar}
-                alt={`Responsável: ${deal.owner.name}`}
+                alt={`ResponsÃ¡vel: ${deal.owner.name}`}
                 width={20}
                 height={20}
                 className="w-5 h-5 rounded-full ring-1 ring-white dark:ring-slate-800"
-                title={`Responsável: ${deal.owner.name}`}
+                title={`ResponsÃ¡vel: ${deal.owner.name}`}
                 unoptimized
               />
             ) : (
               <div
                 className="w-5 h-5 rounded-full bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300 flex items-center justify-center text-[9px] font-bold ring-1 ring-white dark:ring-slate-800"
-                title={`Responsável: ${deal.owner.name}`}
+                title={`ResponsÃ¡vel: ${deal.owner.name}`}
               >
                 {getInitials(deal.owner.name)}
               </div>
@@ -354,6 +354,6 @@ const DealCardComponent: React.FC<DealCardProps> = ({
 /**
  * Performance: `DealCard` fica em lista grande (Kanban).
  * Usamos `React.memo` para evitar re-render de TODOS os cards quando apenas o menu de 1 deal muda.
- * Isso depende de props estáveis do pai (ex.: `onSelect` via useCallback e `isMenuOpen` por-card).
+ * Isso depende de props estÃ¡veis do pai (ex.: `onSelect` via useCallback e `isMenuOpen` por-card).
  */
 export const DealCard = React.memo(DealCardComponent);
