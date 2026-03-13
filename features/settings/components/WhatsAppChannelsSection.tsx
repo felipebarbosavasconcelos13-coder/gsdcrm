@@ -1,5 +1,19 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Eye, EyeOff, List, MessageCircle, MessageSquare, Shield, UserRound, Users, X } from 'lucide-react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  List,
+  MessageCircle,
+  MessageSquare,
+  Power,
+  Shield,
+  TestTube2,
+  Trash2,
+  UserRound,
+  Users,
+  X,
+} from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { SettingsSection } from './SettingsSection';
 import { useToast } from '@/context/ToastContext';
@@ -8,7 +22,8 @@ import { cn } from '@/lib/utils/cn';
 type ConfigTab = 'auth' | 'intervals' | 'settings';
 type ListType = 'buttons' | 'numeric';
 
-type EvolutionConfig = {
+type EvolutionConnection = {
+  id: string;
   connectionName: string;
   instanceUrl: string;
   instanceName: string;
@@ -21,9 +36,12 @@ type EvolutionConfig = {
   restoreEnabled: boolean;
   restoreFrom: string;
   restoreTo: string;
+  active: boolean;
+  updatedAt?: string;
 };
 
-const DEFAULT_CONFIG: EvolutionConfig = {
+const DEFAULT_CONFIG: EvolutionConnection = {
+  id: '',
   connectionName: '',
   instanceUrl: '',
   instanceName: '',
@@ -36,6 +54,7 @@ const DEFAULT_CONFIG: EvolutionConfig = {
   restoreEnabled: false,
   restoreFrom: '',
   restoreTo: '',
+  active: true,
 };
 
 function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (next: boolean) => void; disabled?: boolean }) {
@@ -72,56 +91,49 @@ export const WhatsAppChannelsSection: React.FC = () => {
   const [showApiKey, setShowApiKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [config, setConfig] = useState<EvolutionConfig>(DEFAULT_CONFIG);
+  const [connections, setConnections] = useState<EvolutionConnection[]>([]);
+  const [config, setConfig] = useState<EvolutionConnection>(DEFAULT_CONFIG);
+  const [testingById, setTestingById] = useState<Record<string, boolean>>({});
 
-  const hasBasicConfig = useMemo(() => {
-    return Boolean(config.instanceUrl && config.instanceName && config.apiKey);
-  }, [config.instanceUrl, config.instanceName, config.apiKey]);
+  const loadConnections = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/integrations/whatsapp/evolution/config', { cache: 'no-store' });
+      const json = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error((json && typeof json.error === 'string' && json.error) || 'Falha ao carregar conexoes.');
+      }
+
+      const list = Array.isArray((json as any)?.connections) ? ((json as any).connections as EvolutionConnection[]) : [];
+      setConnections(list);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel carregar conexoes.';
+      addToast(message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [addToast]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    void loadConnections();
+  }, [loadConnections]);
 
-    let cancelled = false;
+  const hasAnyConnection = connections.length > 0;
+  const activeCount = useMemo(() => connections.filter((c) => c.active).length, [connections]);
 
-    const load = async () => {
-      setLoading(true);
-      try {
-        const response = await fetch('/api/integrations/whatsapp/evolution/config', { cache: 'no-store' });
-        const json = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error((json && typeof json.error === 'string' && json.error) || 'Falha ao carregar configuracao.');
-        }
+  const openCreateModal = () => {
+    setActiveTab('auth');
+    setShowApiKey(false);
+    setConfig(DEFAULT_CONFIG);
+    setIsOpen(true);
+  };
 
-        if (!cancelled && json && typeof json === 'object') {
-          setConfig({
-            connectionName: String((json as any).connectionName ?? ''),
-            instanceUrl: String((json as any).instanceUrl ?? ''),
-            instanceName: String((json as any).instanceName ?? ''),
-            apiKey: String((json as any).apiKey ?? ''),
-            typingEnabled: Boolean((json as any).typingEnabled ?? false),
-            typingIntervalMinSeconds: Number((json as any).typingIntervalMinSeconds ?? 0),
-            typingIntervalMaxSeconds: Number((json as any).typingIntervalMaxSeconds ?? 2),
-            listenGroups: Boolean((json as any).listenGroups ?? false),
-            listType: ((json as any).listType === 'numeric' ? 'numeric' : 'buttons') as ListType,
-            restoreEnabled: Boolean((json as any).restoreEnabled ?? false),
-            restoreFrom: String((json as any).restoreFrom ?? ''),
-            restoreTo: String((json as any).restoreTo ?? ''),
-          });
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Nao foi possivel carregar configuracao.';
-        addToast(message, 'error');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, addToast]);
+  const openEditModal = (connection: EvolutionConnection) => {
+    setActiveTab('auth');
+    setShowApiKey(false);
+    setConfig(connection);
+    setIsOpen(true);
+  };
 
   const saveConfig = async () => {
     setSaving(true);
@@ -134,48 +146,174 @@ export const WhatsAppChannelsSection: React.FC = () => {
 
       const json = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error((json && typeof json.error === 'string' && json.error) || 'Falha ao salvar configuracao.');
+        throw new Error((json && typeof json.error === 'string' && json.error) || 'Falha ao salvar conexao.');
       }
 
-      addToast('Conexao da Evolution salva com sucesso.', 'success');
+      addToast('Conexao salva com sucesso.', 'success');
       setIsOpen(false);
+      await loadConnections();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Nao foi possivel salvar configuracao.';
+      const message = error instanceof Error ? error.message : 'Nao foi possivel salvar conexao.';
       addToast(message, 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const channels = [
-    { id: 'whatsapp', label: 'Whatsapp', active: true },
-    { id: 'instagram', label: 'Instagram', active: false },
-    { id: 'messenger', label: 'Messenger', active: false },
-  ] as const;
+  const toggleActive = async (id: string, active: boolean) => {
+    try {
+      const response = await fetch('/api/integrations/whatsapp/evolution/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, active }),
+      });
+      const json = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error((json && typeof json.error === 'string' && json.error) || 'Falha ao atualizar status.');
+      }
+
+      addToast(active ? 'Conexao ativada.' : 'Conexao desativada.', 'success');
+      await loadConnections();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel atualizar status.';
+      addToast(message, 'error');
+    }
+  };
+
+  const deleteConnection = async (id: string) => {
+    const ok = window.confirm('Deseja excluir esta conexao? Esta acao nao pode ser desfeita.');
+    if (!ok) return;
+
+    try {
+      const response = await fetch(`/api/integrations/whatsapp/evolution/config?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      const json = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error((json && typeof json.error === 'string' && json.error) || 'Falha ao excluir conexao.');
+      }
+
+      addToast('Conexao excluida com sucesso.', 'success');
+      await loadConnections();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel excluir conexao.';
+      addToast(message, 'error');
+    }
+  };
+
+  const testConnection = async (id: string) => {
+    setTestingById((prev) => ({ ...prev, [id]: true }));
+    try {
+      const response = await fetch('/api/integrations/whatsapp/evolution/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error((json && typeof json.error === 'string' && json.error) || 'Falha no teste de conexao.');
+      }
+
+      const connected = Boolean((json as any)?.connected);
+      const message = String((json as any)?.message ?? 'Teste concluido.');
+      addToast(connected ? `Conectado: ${message}` : `Desconectado: ${message}`, connected ? 'success' : 'warning');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha no teste de conexao.';
+      addToast(message, 'error');
+    } finally {
+      setTestingById((prev) => ({ ...prev, [id]: false }));
+    }
+  };
 
   return (
-    <SettingsSection
-      title="Canais de Mensagem"
-      icon={MessageCircle}
-    >
-      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Configure o canal WhatsApp (Evolution API) com uma experiencia guiada para o usuario.</p>
-      <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/60 dark:bg-white/5 p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <SettingsSection title="Canais de Mensagem" icon={MessageCircle}>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+        Gerencie conexoes WhatsApp (Evolution API): ativar, desativar, testar, editar e excluir.
+      </p>
+
+      <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/60 dark:bg-white/5 p-4 mb-4 flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-slate-900 dark:text-white">Canal WhatsApp</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {hasBasicConfig ? 'Conexao pronta para envio com Evolution API.' : 'Conexao ainda nao configurada.'}
-          </p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">Conexoes configuradas: {connections.length}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Ativas: {activeCount}</p>
         </div>
         <button
           type="button"
-          onClick={() => {
-            setActiveTab('auth');
-            setIsOpen(true);
-          }}
-          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
+          onClick={openCreateModal}
+          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"
         >
-          {hasBasicConfig ? 'Editar conexao' : 'Cadastrar conexao'}
+          {hasAnyConnection ? 'Gerenciar conexao' : 'Cadastrar conexao'}
         </button>
+      </div>
+
+      <div className="space-y-3">
+        {loading && (
+          <div className="text-sm text-slate-500 dark:text-slate-400">Carregando conexoes...</div>
+        )}
+
+        {!loading && connections.length === 0 && (
+          <div className="rounded-xl border border-dashed border-slate-300 dark:border-white/15 p-4 text-sm text-slate-500 dark:text-slate-400">
+            Nenhuma conexao cadastrada.
+          </div>
+        )}
+
+        {connections.map((connection) => (
+          <div key={connection.id} className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold text-slate-900 dark:text-white">{connection.connectionName || 'Conexao sem nome'}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{connection.instanceName || 'Instancia nao informada'}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{connection.instanceUrl || 'URL nao informada'}</p>
+              </div>
+
+              <span
+                className={cn(
+                  'text-xs font-semibold px-2 py-1 rounded-full',
+                  connection.active
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                    : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+                )}
+              >
+                {connection.active ? 'Ativa' : 'Inativa'}
+              </span>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => openEditModal(connection)}
+                className="px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 text-sm font-semibold"
+              >
+                Gerenciar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => toggleActive(connection.id, !connection.active)}
+                className="px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 text-sm font-semibold inline-flex items-center gap-1"
+              >
+                <Power size={14} /> {connection.active ? 'Desativar' : 'Ativar'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => testConnection(connection.id)}
+                disabled={Boolean(testingById[connection.id])}
+                className="px-3 py-2 rounded-lg border border-blue-300 dark:border-blue-500/30 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-500/10 text-sm font-semibold inline-flex items-center gap-1 disabled:opacity-60"
+              >
+                <TestTube2 size={14} /> {testingById[connection.id] ? 'Testando...' : 'Testar conexao'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => deleteConnection(connection.id)}
+                className="px-3 py-2 rounded-lg border border-red-300 dark:border-red-500/30 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-500/10 text-sm font-semibold inline-flex items-center gap-1"
+              >
+                <Trash2 size={14} /> Excluir
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
       <Modal
@@ -188,22 +326,9 @@ export const WhatsAppChannelsSection: React.FC = () => {
       >
         <div className="grid grid-cols-1 md:grid-cols-[170px,1fr] min-h-[640px]">
           <aside className="border-r border-slate-200 dark:border-white/10 bg-slate-100/80 dark:bg-white/5 p-2">
-            {channels.map((channel) => (
-              <button
-                key={channel.id}
-                type="button"
-                disabled={!channel.active}
-                className={cn(
-                  'w-full text-left px-3 py-2.5 rounded-lg text-lg font-semibold transition-colors mb-1',
-                  channel.id === 'whatsapp'
-                    ? 'bg-blue-100 dark:bg-blue-500/20 text-slate-900 dark:text-white'
-                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/70 dark:hover:bg-white/10',
-                  !channel.active && 'opacity-80'
-                )}
-              >
-                {channel.label}
-              </button>
-            ))}
+            <button type="button" className="w-full text-left px-3 py-2.5 rounded-lg text-lg font-semibold bg-blue-100 dark:bg-blue-500/20 text-slate-900 dark:text-white">
+              Whatsapp
+            </button>
           </aside>
 
           <div className="p-6 relative">
@@ -220,7 +345,7 @@ export const WhatsAppChannelsSection: React.FC = () => {
               <CheckCircle2 size={16} className="text-emerald-500" />
               <span className="text-lg">Evolution API</span>
             </div>
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-6">Cadastrar conexao</h2>
+            <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-6">{config.id ? 'Gerenciar conexao' : 'Cadastrar conexao'}</h2>
 
             <div className="mb-6">
               <label className="block text-sm md:text-base font-semibold text-slate-700 dark:text-slate-300 mb-2">Nome da conexao</label>
@@ -316,9 +441,7 @@ export const WhatsAppChannelsSection: React.FC = () => {
                           min={0}
                           max={120}
                           value={config.typingIntervalMinSeconds}
-                          onChange={(e) =>
-                            setConfig((prev) => ({ ...prev, typingIntervalMinSeconds: Number(e.target.value || 0) }))
-                          }
+                          onChange={(e) => setConfig((prev) => ({ ...prev, typingIntervalMinSeconds: Number(e.target.value || 0) }))}
                           className="w-20 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-slate-900/40 px-3 py-1.5"
                         />
                         <span>e</span>
@@ -327,18 +450,13 @@ export const WhatsAppChannelsSection: React.FC = () => {
                           min={0}
                           max={120}
                           value={config.typingIntervalMaxSeconds}
-                          onChange={(e) =>
-                            setConfig((prev) => ({ ...prev, typingIntervalMaxSeconds: Number(e.target.value || 0) }))
-                          }
+                          onChange={(e) => setConfig((prev) => ({ ...prev, typingIntervalMaxSeconds: Number(e.target.value || 0) }))}
                           className="w-20 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-slate-900/40 px-3 py-1.5"
                         />
                         <span>segundos</span>
                       </div>
                     </div>
-                    <Switch
-                      checked={config.typingEnabled}
-                      onChange={(next) => setConfig((prev) => ({ ...prev, typingEnabled: next }))}
-                    />
+                    <Switch checked={config.typingEnabled} onChange={(next) => setConfig((prev) => ({ ...prev, typingEnabled: next }))} />
                   </div>
                 </div>
               )}
@@ -353,10 +471,7 @@ export const WhatsAppChannelsSection: React.FC = () => {
                         </p>
                         <p className="text-slate-500 dark:text-slate-400">Receber mensagens enviadas em grupos</p>
                       </div>
-                      <Switch
-                        checked={config.listenGroups}
-                        onChange={(next) => setConfig((prev) => ({ ...prev, listenGroups: next }))}
-                      />
+                      <Switch checked={config.listenGroups} onChange={(next) => setConfig((prev) => ({ ...prev, listenGroups: next }))} />
                     </div>
                   </div>
 
@@ -371,9 +486,7 @@ export const WhatsAppChannelsSection: React.FC = () => {
                       onClick={() => setConfig((prev) => ({ ...prev, listType: 'buttons' }))}
                       className={cn(
                         'w-full text-left rounded-xl border p-3 mb-2 transition-colors',
-                        config.listType === 'buttons'
-                          ? 'border-blue-500/50 bg-blue-50 dark:bg-blue-500/10'
-                          : 'border-slate-300 dark:border-white/10'
+                        config.listType === 'buttons' ? 'border-blue-500/50 bg-blue-50 dark:bg-blue-500/10' : 'border-slate-300 dark:border-white/10'
                       )}
                     >
                       <p className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
@@ -387,9 +500,7 @@ export const WhatsAppChannelsSection: React.FC = () => {
                       onClick={() => setConfig((prev) => ({ ...prev, listType: 'numeric' }))}
                       className={cn(
                         'w-full text-left rounded-xl border p-3 transition-colors',
-                        config.listType === 'numeric'
-                          ? 'border-blue-500/50 bg-blue-50 dark:bg-blue-500/10'
-                          : 'border-slate-300 dark:border-white/10'
+                        config.listType === 'numeric' ? 'border-blue-500/50 bg-blue-50 dark:bg-blue-500/10' : 'border-slate-300 dark:border-white/10'
                       )}
                     >
                       <p className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
@@ -397,41 +508,6 @@ export const WhatsAppChannelsSection: React.FC = () => {
                       </p>
                       <p className="text-slate-500 dark:text-slate-400">Opcoes numeradas (1, 2, 3...)</p>
                     </button>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 p-4">
-                    <p className="text-xl md:text-2xl font-semibold text-slate-900 dark:text-white mb-1">Restaurar mensagens</p>
-                    <p className="text-slate-500 dark:text-slate-400 mb-3">Recuperar mensagens anteriores a conexao</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
-                      <input
-                        type="date"
-                        value={config.restoreFrom}
-                        onChange={(e) => setConfig((prev) => ({ ...prev, restoreFrom: e.target.value }))}
-                        className={inputClass}
-                      />
-                      <input
-                        type="date"
-                        value={config.restoreTo}
-                        onChange={(e) => setConfig((prev) => ({ ...prev, restoreTo: e.target.value }))}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Switch
-                        checked={config.restoreEnabled}
-                        onChange={(next) => setConfig((prev) => ({ ...prev, restoreEnabled: next }))}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConfig((prev) => ({ ...prev, restoreEnabled: true }));
-                          addToast('Periodo de restauracao preparado. Salve para aplicar.', 'info');
-                        }}
-                        className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                      >
-                        Restaurar Mensagens
-                      </button>
-                    </div>
                   </div>
                 </div>
               )}
