@@ -1,6 +1,7 @@
 ﻿import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { isAllowedOrigin } from '@/lib/security/sameOrigin';
+import { setEvolutionWebhook, type EvolutionConfig } from '@/lib/integrations/evolution/client';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -64,6 +65,95 @@ function toNullable(value?: string) {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function asBaseUrl(value: string) {
+  return value.trim().replace(/\/$/, '');
+}
+
+function resolveWebhookBase(req: Request) {
+  const explicit =
+    process.env.EVOLUTION_WEBHOOK_PUBLIC_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    '';
+
+  if (explicit.trim()) return asBaseUrl(explicit);
+  return asBaseUrl(new URL(req.url).origin);
+}
+
+function buildWebhookUrl(req: Request) {
+  const base = resolveWebhookBase(req);
+  const url = new URL(`${base}/api/webhooks/evolution`);
+
+  const token = (process.env.EVOLUTION_WEBHOOK_TOKEN || '').trim();
+  const sourceId = (process.env.EVOLUTION_WEBHOOK_SOURCE_ID || '').trim();
+  if (token) url.searchParams.set('token', token);
+  if (sourceId) url.searchParams.set('sourceId', sourceId);
+
+  return url.toString();
+}
+
+function canAutoProvisionWebhook() {
+  return Boolean(
+    (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim() &&
+      (process.env.EVOLUTION_WEBHOOK_SOURCE_ID || '').trim() &&
+      (process.env.EVOLUTION_WEBHOOK_SOURCE_SECRET || '').trim()
+  );
+}
+
+function toEvolutionConfig(data: {
+  instanceUrl?: string | null;
+  instanceName?: string | null;
+  apiKey?: string | null;
+}): EvolutionConfig | null {
+  const baseUrl = String(data.instanceUrl || '').trim().replace(/\/$/, '');
+  const instance = String(data.instanceName || '').trim();
+  const apiKey = String(data.apiKey || '').trim();
+
+  if (!baseUrl || !instance || !apiKey) return null;
+  return { baseUrl, instance, apiKey };
+}
+
+async function syncEvolutionWebhook(params: {
+  req: Request;
+  config: EvolutionConfig | null;
+  enabled: boolean;
+}) {
+  if (!params.config) {
+    return {
+      ok: false,
+      skipped: true,
+      message: 'Webhook nao sincronizado: preencha URL, instancia e chave da Evolution.',
+    } as const;
+  }
+
+  if (!canAutoProvisionWebhook()) {
+    return {
+      ok: false,
+      skipped: true,
+      message:
+        'Webhook nao sincronizado: defina EVOLUTION_WEBHOOK_SOURCE_ID e EVOLUTION_WEBHOOK_SOURCE_SECRET no servidor.',
+    } as const;
+  }
+
+  const webhookUrl = buildWebhookUrl(params.req);
+  const webhook = await setEvolutionWebhook({
+    config: params.config,
+    url: webhookUrl,
+    enabled: params.enabled,
+    webhookByEvents: false,
+    webhookBase64: false,
+    events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE'],
+  });
+
+  return {
+    ok: webhook.ok,
+    skipped: false,
+    status: webhook.status,
+    message: webhook.message,
+    webhookUrl,
+  } as const;
 }
 
 export async function GET() {
@@ -137,7 +227,6 @@ export async function POST(req: Request) {
     updated_at: new Date().toISOString(),
   };
 
-  // Schema atual permite apenas 1 conexão por provider/org (unique organization_id,provider).
   const { data: existing } = await ctx.supabase
     .from('organization_whatsapp_connections')
     .select('id')
@@ -145,23 +234,42 @@ export async function POST(req: Request) {
     .eq('provider', 'evolution')
     .maybeSingle();
 
-  let error: any = null;
+  let saveError: any = null;
+  let savedId: string | null = null;
 
   if (existing?.id) {
     const update = await ctx.supabase
       .from('organization_whatsapp_connections')
       .update(payload)
       .eq('id', existing.id)
-      .eq('organization_id', ctx.organizationId);
-    error = update.error;
+      .eq('organization_id', ctx.organizationId)
+      .select('id')
+      .single();
+    saveError = update.error;
+    savedId = update.data?.id ?? existing.id;
   } else {
-    const insert = await ctx.supabase.from('organization_whatsapp_connections').insert(payload);
-    error = insert.error;
+    const insert = await ctx.supabase
+      .from('organization_whatsapp_connections')
+      .insert(payload)
+      .select('id')
+      .single();
+    saveError = insert.error;
+    savedId = insert.data?.id ?? null;
   }
 
-  if (error) return json({ error: error.message }, 500);
+  if (saveError) return json({ error: saveError.message }, 500);
 
-  return json({ ok: true });
+  const webhook = await syncEvolutionWebhook({
+    req,
+    config: toEvolutionConfig({
+      instanceUrl: body.instanceUrl,
+      instanceName: body.instanceName,
+      apiKey: body.apiKey,
+    }),
+    enabled: body.active ?? true,
+  });
+
+  return json({ ok: true, id: savedId, webhook });
 }
 
 export async function PATCH(req: Request) {
@@ -178,6 +286,16 @@ export async function PATCH(req: Request) {
 
   const { id, active } = parsed.data;
 
+  const { data: connection, error: lookupError } = await ctx.supabase
+    .from('organization_whatsapp_connections')
+    .select('id,instance_url,instance_name,api_key')
+    .eq('id', id)
+    .eq('organization_id', ctx.organizationId)
+    .eq('provider', 'evolution')
+    .maybeSingle();
+
+  if (lookupError || !connection) return json({ error: 'Conexao nao encontrada.' }, 404);
+
   const { error } = await ctx.supabase
     .from('organization_whatsapp_connections')
     .update({ active, updated_at: new Date().toISOString() })
@@ -186,7 +304,18 @@ export async function PATCH(req: Request) {
     .eq('provider', 'evolution');
 
   if (error) return json({ error: error.message }, 500);
-  return json({ ok: true });
+
+  const webhook = await syncEvolutionWebhook({
+    req,
+    config: toEvolutionConfig({
+      instanceUrl: connection.instance_url,
+      instanceName: connection.instance_name,
+      apiKey: connection.api_key,
+    }),
+    enabled: active,
+  });
+
+  return json({ ok: true, webhook });
 }
 
 export async function DELETE(req: Request) {
@@ -198,6 +327,26 @@ export async function DELETE(req: Request) {
   const url = new URL(req.url);
   const id = url.searchParams.get('id') ?? '';
   if (!id) return json({ error: 'Id da conexao e obrigatorio.' }, 400);
+
+  const { data: connection } = await ctx.supabase
+    .from('organization_whatsapp_connections')
+    .select('id,instance_url,instance_name,api_key')
+    .eq('id', id)
+    .eq('organization_id', ctx.organizationId)
+    .eq('provider', 'evolution')
+    .maybeSingle();
+
+  if (connection) {
+    await syncEvolutionWebhook({
+      req,
+      config: toEvolutionConfig({
+        instanceUrl: connection.instance_url,
+        instanceName: connection.instance_name,
+        apiKey: connection.api_key,
+      }),
+      enabled: false,
+    });
+  }
 
   const { error } = await ctx.supabase
     .from('organization_whatsapp_connections')

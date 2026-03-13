@@ -20,6 +20,13 @@ export type EvolutionConnectionCheckResult = {
   payload?: unknown;
 };
 
+export type EvolutionWebhookUpsertResult = {
+  ok: boolean;
+  status: number;
+  message: string;
+  payload?: unknown;
+};
+
 export function getEvolutionConfig(): EvolutionConfig | null {
   const baseUrl = process.env.EVOLUTION_API_URL?.trim().replace(/\/$/, '');
   const apiKey = process.env.EVOLUTION_API_KEY?.trim();
@@ -117,6 +124,67 @@ async function evolutionFetchJson(url: string, apiKey: string) {
   }
 
   return { response, payload };
+}
+
+export async function setEvolutionWebhook(input: {
+  config?: EvolutionConfig | null;
+  url: string;
+  enabled: boolean;
+  webhookByEvents?: boolean;
+  webhookBase64?: boolean;
+  events?: string[];
+}): Promise<EvolutionWebhookUpsertResult> {
+  const resolved = input.config ?? getEvolutionConfig();
+  if (!resolved) {
+    return {
+      ok: false,
+      status: 409,
+      message: 'Evolution API nao configurada no servidor.',
+    };
+  }
+
+  const response = await fetch(
+    `${resolved.baseUrl.replace(/\/$/, '')}/webhook/set/${encodeURIComponent(resolved.instance)}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: resolved.apiKey,
+      },
+      body: JSON.stringify({
+        enabled: input.enabled,
+        url: input.url,
+        webhookByEvents: input.webhookByEvents ?? false,
+        webhookBase64: input.webhookBase64 ?? false,
+        events:
+          input.events ?? ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE'],
+      }),
+      cache: 'no-store',
+    }
+  );
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      message: extractEvolutionError(payload as any, response.status),
+      payload,
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    message: 'Webhook configurado com sucesso.',
+    payload,
+  };
 }
 
 export async function checkEvolutionConnection(config?: EvolutionConfig | null): Promise<EvolutionConnectionCheckResult> {

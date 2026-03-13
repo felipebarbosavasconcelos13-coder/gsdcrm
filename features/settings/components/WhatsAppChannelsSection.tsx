@@ -167,6 +167,10 @@ export const WhatsAppChannelsSection: React.FC = () => {
       }
 
       addToast('Conexao salva com sucesso.', 'success');
+      if (json && typeof (json as any)?.webhook?.message === 'string') {
+        const webhookOk = Boolean((json as any)?.webhook?.ok);
+        addToast(String((json as any).webhook.message), webhookOk ? 'success' : 'info');
+      }
       setIsOpen(false);
       await loadConnections();
     } catch (error) {
@@ -190,6 +194,10 @@ export const WhatsAppChannelsSection: React.FC = () => {
       }
 
       addToast(active ? 'Conexao ativada.' : 'Conexao desativada.', 'success');
+      if (json && typeof (json as any)?.webhook?.message === 'string') {
+        const webhookOk = Boolean((json as any)?.webhook?.ok);
+        addToast(String((json as any).webhook.message), webhookOk ? 'success' : 'info');
+      }
       await loadConnections();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Nao foi possivel atualizar status.';
