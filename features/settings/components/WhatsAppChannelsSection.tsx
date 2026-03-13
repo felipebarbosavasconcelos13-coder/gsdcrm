@@ -138,10 +138,27 @@ export const WhatsAppChannelsSection: React.FC = () => {
   const saveConfig = async () => {
     setSaving(true);
     try {
+      const payload = {
+        ...(config.id ? { id: config.id } : {}),
+        connectionName: config.connectionName,
+        instanceUrl: config.instanceUrl,
+        instanceName: config.instanceName,
+        apiKey: config.apiKey,
+        typingEnabled: config.typingEnabled,
+        typingIntervalMinSeconds: config.typingIntervalMinSeconds,
+        typingIntervalMaxSeconds: config.typingIntervalMaxSeconds,
+        listenGroups: config.listenGroups,
+        listType: config.listType,
+        restoreEnabled: config.restoreEnabled,
+        restoreFrom: config.restoreFrom,
+        restoreTo: config.restoreTo,
+        active: config.active,
+      };
+
       const response = await fetch('/api/integrations/whatsapp/evolution/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
+        body: JSON.stringify(payload),
       });
 
       const json = await response.json().catch(() => null);
