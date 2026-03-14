@@ -21,36 +21,53 @@ function jidToId(value: unknown): string {
   return raw.includes('@') ? raw.split('@')[0] : raw;
 }
 
-function collectPhoneCandidates(raw: any, data: any, key: any) {
-  const candidates = [
-    key?.remoteJid,
-    data?.remoteJid,
-    key?.participant,
-    data?.participant,
-    data?.sender,
-    data?.sender?.id,
-    data?.sender?.phone,
-    data?.from,
-    data?.fromNumber,
-    data?.chatId,
-    raw?.sender,
-    raw?.sender?.id,
-    raw?.from,
-    data?.messages?.[0]?.key?.remoteJid,
-    data?.messages?.[0]?.key?.participant,
-    data?.messages?.[0]?.participant,
-  ];
-
-  return candidates
-    .map(jidToId)
-    .map((v) => toWhatsAppPhone(v))
-    .filter((v) => Boolean(v));
+function boolFromAny(value: unknown) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    if (v === 'true' || v === '1' || v === 'yes') return true;
+    if (v === 'false' || v === '0' || v === 'no') return false;
+  }
+  if (typeof value === 'number') return value !== 0;
+  return false;
 }
 
-function pickBestPhone(raw: any, data: any, key: any): string {
+function collectPhoneCandidates(raw: any, data: any, key: any, preferSenderFields: boolean) {
+  const senderFirst = [
+    key?.participant,
+    data?.participant,
+    data?.sender?.phone,
+    data?.sender?.id,
+    data?.sender,
+    data?.from,
+    data?.fromNumber,
+    data?.messages?.[0]?.key?.participant,
+    data?.messages?.[0]?.participant,
+    raw?.sender?.phone,
+    raw?.sender?.id,
+    raw?.sender,
+    raw?.from,
+  ];
+
+  const chatFields = [
+    key?.remoteJid,
+    data?.remoteJid,
+    data?.chatId,
+    data?.messages?.[0]?.key?.remoteJid,
+  ];
+
+  const ordered = preferSenderFields ? [...senderFirst, ...chatFields] : [...chatFields, ...senderFirst];
+
+  return ordered
+    .map(jidToId)
+    .map((v) => toWhatsAppPhone(v))
+    .filter((v, idx, arr) => Boolean(v) && arr.indexOf(v) === idx);
+}
+
+function pickBestPhone(raw: any, data: any, key: any, fromMe: boolean): string {
   const remoteJidRaw = String(key?.remoteJid ?? data?.remoteJid ?? '').trim();
   const remoteId = toWhatsAppPhone(jidToId(remoteJidRaw));
-  const all = collectPhoneCandidates(raw, data, key);
+  const all = collectPhoneCandidates(raw, data, key, !fromMe);
 
   // Prefer BR number when available (produto atual é focado em BR).
   const br = all.find((p) => p.startsWith('55') && p.length >= 12 && p.length <= 13);
@@ -204,7 +221,12 @@ export async function POST(req: Request) {
     const key = data?.key ?? data?.messages?.[0]?.key ?? {};
     const messageNode = data?.message ?? data?.messages?.[0]?.message ?? {};
 
-    const fromMe = Boolean(key?.fromMe ?? data?.fromMe);
+    const fromMe = boolFromAny(
+      key?.fromMe ??
+        data?.fromMe ??
+        data?.messages?.[0]?.key?.fromMe ??
+        raw?.data?.messages?.[0]?.key?.fromMe
+    );
     if (fromMe) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'Mensagem enviada por mim.' }, { status: 202 });
     }
@@ -214,7 +236,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'Sem remetente valido.' }, { status: 202 });
     }
 
-    const phoneDigits = pickBestPhone(raw, data, key);
+    const phoneDigits = pickBestPhone(raw, data, key, fromMe);
     if (!phoneDigits) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'Telefone invalido no evento.' }, { status: 202 });
     }
