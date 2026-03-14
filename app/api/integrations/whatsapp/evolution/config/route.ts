@@ -99,7 +99,7 @@ function resolveWebhookBase(req: Request) {
   return asBaseUrl(new URL(req.url).origin);
 }
 
-function buildWebhookUrl(req: Request) {
+function buildWebhookUrl(req: Request, connectionId?: string) {
   const base = resolveWebhookBase(req);
   const url = new URL(`${base}/api/webhooks/evolution`);
 
@@ -107,6 +107,7 @@ function buildWebhookUrl(req: Request) {
   const sourceId = (process.env.EVOLUTION_WEBHOOK_SOURCE_ID || '').trim();
   if (token) url.searchParams.set('token', token);
   if (sourceId) url.searchParams.set('sourceId', sourceId);
+  if (connectionId) url.searchParams.set('connectionId', connectionId);
 
   return url.toString();
 }
@@ -134,6 +135,7 @@ async function syncEvolutionWebhook(params: {
   req: Request;
   config: EvolutionConfig | null;
   enabled: boolean;
+  connectionId?: string;
 }) {
   if (!params.config) {
     return {
@@ -151,7 +153,7 @@ async function syncEvolutionWebhook(params: {
     } as const;
   }
 
-  const webhookUrl = buildWebhookUrl(params.req);
+  const webhookUrl = buildWebhookUrl(params.req, params.connectionId);
   const webhook = await setEvolutionWebhook({
     config: params.config,
     url: webhookUrl,
@@ -285,6 +287,7 @@ export async function POST(req: Request) {
       apiKey: body.apiKey,
     }),
     enabled: body.active ?? true,
+    connectionId: savedId ?? undefined,
   });
 
   return json({ ok: true, id: savedId, webhook });
@@ -331,6 +334,7 @@ export async function PATCH(req: Request) {
       apiKey: connection.api_key,
     }),
     enabled: active,
+    connectionId: id,
   });
 
   return json({ ok: true, webhook });
@@ -363,6 +367,7 @@ export async function DELETE(req: Request) {
         apiKey: connection.api_key,
       }),
       enabled: false,
+      connectionId: id,
     });
   }
 

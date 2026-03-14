@@ -27,7 +27,22 @@ function pickInstanceName(raw: any): string {
   ).trim();
 }
 
-async function resolveOrganizationId(admin: ReturnType<typeof createStaticAdminClient>, instanceName: string) {
+async function resolveOrganizationId(
+  admin: ReturnType<typeof createStaticAdminClient>,
+  instanceName: string,
+  connectionId?: string
+) {
+  const byConnectionId = String(connectionId || '').trim();
+  if (byConnectionId) {
+    const byId = await admin
+      .from('organization_whatsapp_connections')
+      .select('organization_id')
+      .eq('id', byConnectionId)
+      .eq('provider', 'evolution')
+      .maybeSingle();
+    if (byId.data?.organization_id) return byId.data.organization_id as string;
+  }
+
   const normalized = instanceName.trim();
   if (!normalized) return null;
 
@@ -76,6 +91,7 @@ async function resolveOrganizationId(admin: ReturnType<typeof createStaticAdminC
 }
 
 async function persistInboundMessage(input: {
+  connectionId?: string;
   instanceName: string;
   phone: string;
   contactName: string;
@@ -85,7 +101,7 @@ async function persistInboundMessage(input: {
 }) {
   try {
     const admin = createStaticAdminClient();
-    const organizationId = await resolveOrganizationId(admin, input.instanceName);
+    const organizationId = await resolveOrganizationId(admin, input.instanceName, input.connectionId);
     if (!organizationId) return;
 
     await admin.from('whatsapp_messages').upsert(
@@ -111,6 +127,7 @@ export async function POST(req: Request) {
     const url = new URL(req.url);
     const token = url.searchParams.get('token') ?? '';
     const sourceId = url.searchParams.get('sourceId') ?? process.env.EVOLUTION_WEBHOOK_SOURCE_ID ?? '';
+    const connectionId = url.searchParams.get('connectionId') ?? '';
 
     const expectedToken = process.env.EVOLUTION_WEBHOOK_TOKEN ?? '';
     const sourceSecret = process.env.EVOLUTION_WEBHOOK_SOURCE_SECRET ?? '';
@@ -151,6 +168,7 @@ export async function POST(req: Request) {
     const externalEventId = String(key?.id ?? data?.id ?? `${Date.now()}-${phoneDigits}`).trim();
 
     await persistInboundMessage({
+      connectionId,
       instanceName: pickInstanceName(raw),
       phone: `+${phoneDigits}`,
       contactName: pushName || `WhatsApp ${phoneDigits}`,
