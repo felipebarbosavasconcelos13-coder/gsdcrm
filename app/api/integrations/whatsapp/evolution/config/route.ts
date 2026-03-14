@@ -95,11 +95,9 @@ function buildWebhookUrl(req: Request) {
 }
 
 function canAutoProvisionWebhook() {
-  return Boolean(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim() &&
-      (process.env.EVOLUTION_WEBHOOK_SOURCE_ID || '').trim() &&
-      (process.env.EVOLUTION_WEBHOOK_SOURCE_SECRET || '').trim()
-  );
+  // sourceId/sourceSecret agora são opcionais para recebimento básico.
+  // Sem eles, o endpoint ainda recebe e salva mensagens inbound.
+  return true;
 }
 
 function toEvolutionConfig(data: {
@@ -132,8 +130,7 @@ async function syncEvolutionWebhook(params: {
     return {
       ok: false,
       skipped: true,
-      message:
-        'Webhook nao sincronizado: defina EVOLUTION_WEBHOOK_SOURCE_ID e EVOLUTION_WEBHOOK_SOURCE_SECRET no servidor.',
+      message: 'Webhook nao sincronizado: configuracao incompleta do servidor.',
     } as const;
   }
 

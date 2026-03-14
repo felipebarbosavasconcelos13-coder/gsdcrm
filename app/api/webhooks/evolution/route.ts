@@ -116,10 +116,6 @@ export async function POST(req: Request) {
     const sourceSecret = process.env.EVOLUTION_WEBHOOK_SOURCE_SECRET ?? '';
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 
-    if (!sourceId || !sourceSecret || !supabaseUrl) {
-      return NextResponse.json({ error: 'Webhook Evolution nao configurado no servidor.' }, { status: 500 });
-    }
-
     if (expectedToken && token !== expectedToken) {
       return NextResponse.json({ error: 'Token invalido.' }, { status: 401 });
     }
@@ -171,6 +167,16 @@ export async function POST(req: Request) {
       deal_title: pushName ? `WhatsApp - ${pushName}` : `WhatsApp - ${phoneDigits}`,
       notes: text || 'Mensagem recebida via WhatsApp (sem texto).',
     };
+
+    // Forward para webhook-in é opcional. Se as envs não estiverem definidas,
+    // ainda persistimos mensagem inbound e retornamos sucesso.
+    if (!sourceId || !sourceSecret || !supabaseUrl) {
+      return NextResponse.json({
+        ok: true,
+        forwarded: false,
+        reason: 'Forward para webhook-in desabilitado (sourceId/sourceSecret nao configurados).',
+      });
+    }
 
     const response = await fetch(`${supabaseUrl}/functions/v1/webhook-in/${sourceId}`, {
       method: 'POST',
