@@ -15,6 +15,57 @@ function normalizeEvolutionEventName(raw: unknown) {
   return String(raw ?? '').trim().toLowerCase().replace(/_/g, '.');
 }
 
+function jidToId(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  return raw.includes('@') ? raw.split('@')[0] : raw;
+}
+
+function collectPhoneCandidates(raw: any, data: any, key: any) {
+  const candidates = [
+    key?.remoteJid,
+    data?.remoteJid,
+    key?.participant,
+    data?.participant,
+    data?.sender,
+    data?.sender?.id,
+    data?.sender?.phone,
+    data?.from,
+    data?.fromNumber,
+    data?.chatId,
+    raw?.sender,
+    raw?.sender?.id,
+    raw?.from,
+    data?.messages?.[0]?.key?.remoteJid,
+    data?.messages?.[0]?.key?.participant,
+    data?.messages?.[0]?.participant,
+  ];
+
+  return candidates
+    .map(jidToId)
+    .map((v) => toWhatsAppPhone(v))
+    .filter((v) => Boolean(v));
+}
+
+function pickBestPhone(raw: any, data: any, key: any): string {
+  const remoteJidRaw = String(key?.remoteJid ?? data?.remoteJid ?? '').trim();
+  const remoteId = toWhatsAppPhone(jidToId(remoteJidRaw));
+  const all = collectPhoneCandidates(raw, data, key);
+
+  // Prefer BR number when available (produto atual é focado em BR).
+  const br = all.find((p) => p.startsWith('55') && p.length >= 12 && p.length <= 13);
+  if (br) return br;
+
+  // If remoteJid is LID and no BR candidate, fallback to another non-LID candidate.
+  const isLid = remoteJidRaw.endsWith('@lid');
+  if (isLid) {
+    const nonLid = all.find((p) => p !== remoteId);
+    if (nonLid) return nonLid;
+  }
+
+  return remoteId || all[0] || '';
+}
+
 function pickInstanceName(raw: any): string {
   return String(
     raw?.instance ??
@@ -163,8 +214,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'Sem remetente valido.' }, { status: 202 });
     }
 
-    const rawPhone = remoteJid.split('@')[0] ?? '';
-    const phoneDigits = toWhatsAppPhone(rawPhone);
+    const phoneDigits = pickBestPhone(raw, data, key);
     if (!phoneDigits) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'Telefone invalido no evento.' }, { status: 202 });
     }
