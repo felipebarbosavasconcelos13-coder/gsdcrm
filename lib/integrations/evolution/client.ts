@@ -170,7 +170,17 @@ export async function setEvolutionWebhook(input: {
     };
   }
 
+  const webhookPayload = {
+    enabled: input.enabled,
+    url: input.url,
+    webhookByEvents: input.webhookByEvents ?? false,
+    webhookBase64: input.webhookBase64 ?? false,
+    events:
+      input.events ?? ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE'],
+  };
+
   let response: Response;
+  let payload: unknown = null;
   try {
     response = await fetch(
       `${resolved.baseUrl.replace(/\/$/, '')}/webhook/set/${encodeURIComponent(resolved.instance)}`,
@@ -180,14 +190,7 @@ export async function setEvolutionWebhook(input: {
           'Content-Type': 'application/json',
           apikey: resolved.apiKey,
         },
-        body: JSON.stringify({
-          enabled: input.enabled,
-          url: input.url,
-          webhookByEvents: input.webhookByEvents ?? false,
-          webhookBase64: input.webhookBase64 ?? false,
-          events:
-            input.events ?? ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE'],
-        }),
+        body: JSON.stringify(webhookPayload),
         cache: 'no-store',
       }
     );
@@ -200,11 +203,66 @@ export async function setEvolutionWebhook(input: {
     };
   }
 
-  let payload: unknown = null;
   try {
     payload = await response.json();
   } catch {
     payload = null;
+  }
+
+  // Compatibilidade com versões que exigem payload aninhado: { webhook: { ... } }
+  if (!response.ok) {
+    const firstError = extractEvolutionError(payload as any, response.status).toLowerCase();
+    if (
+      response.status >= 400 &&
+      (firstError.includes('requires property "webhook"') ||
+        firstError.includes("requires property 'webhook'") ||
+        firstError.includes('property webhook'))
+    ) {
+      try {
+        const fallbackResponse = await fetch(
+          `${resolved.baseUrl.replace(/\/$/, '')}/webhook/set/${encodeURIComponent(resolved.instance)}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: resolved.apiKey,
+            },
+            body: JSON.stringify({ webhook: webhookPayload }),
+            cache: 'no-store',
+          }
+        );
+
+        let fallbackPayload: unknown = null;
+        try {
+          fallbackPayload = await fallbackResponse.json();
+        } catch {
+          fallbackPayload = null;
+        }
+
+        if (fallbackResponse.ok) {
+          return {
+            ok: true,
+            status: fallbackResponse.status,
+            message: 'Webhook configurado com sucesso.',
+            payload: fallbackPayload,
+          };
+        }
+
+        return {
+          ok: false,
+          status: fallbackResponse.status,
+          message: extractEvolutionError(fallbackPayload as any, fallbackResponse.status),
+          payload: fallbackPayload,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Falha ao acessar Evolution API.';
+        return {
+          ok: false,
+          status: 502,
+          message: `Falha ao acessar Evolution API: ${message}`,
+        };
+      }
+    }
   }
 
   if (!response.ok) {
