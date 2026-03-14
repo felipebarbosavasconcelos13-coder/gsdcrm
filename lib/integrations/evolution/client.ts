@@ -37,6 +37,33 @@ export function getEvolutionConfig(): EvolutionConfig | null {
   return { baseUrl, apiKey, instance };
 }
 
+function looksLikeHttpUrl(value: string) {
+  const v = String(value || '').trim();
+  return /^https?:\/\//i.test(v);
+}
+
+function normalizeEvolutionConfig(config: EvolutionConfig | null): EvolutionConfig | null {
+  if (!config) return null;
+
+  let baseUrl = String(config.baseUrl || '').trim();
+  let instance = String(config.instance || '').trim();
+  const apiKey = String(config.apiKey || '').trim();
+
+  // Auto-correct common user input inversion: URL <-> instance name.
+  if (!looksLikeHttpUrl(baseUrl) && looksLikeHttpUrl(instance)) {
+    const oldBase = baseUrl;
+    baseUrl = instance;
+    instance = oldBase;
+  }
+
+  if (!baseUrl || !instance || !apiKey) return null;
+  return {
+    baseUrl: baseUrl.replace(/\/$/, ''),
+    instance,
+    apiKey,
+  };
+}
+
 function extractEvolutionError(payload: any, status: number) {
   const candidate =
     payload?.response?.message ??
@@ -134,7 +161,7 @@ export async function setEvolutionWebhook(input: {
   webhookBase64?: boolean;
   events?: string[];
 }): Promise<EvolutionWebhookUpsertResult> {
-  const resolved = input.config ?? getEvolutionConfig();
+  const resolved = normalizeEvolutionConfig(input.config ?? getEvolutionConfig());
   if (!resolved) {
     return {
       ok: false,
@@ -143,25 +170,35 @@ export async function setEvolutionWebhook(input: {
     };
   }
 
-  const response = await fetch(
-    `${resolved.baseUrl.replace(/\/$/, '')}/webhook/set/${encodeURIComponent(resolved.instance)}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: resolved.apiKey,
-      },
-      body: JSON.stringify({
-        enabled: input.enabled,
-        url: input.url,
-        webhookByEvents: input.webhookByEvents ?? false,
-        webhookBase64: input.webhookBase64 ?? false,
-        events:
-          input.events ?? ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE'],
-      }),
-      cache: 'no-store',
-    }
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `${resolved.baseUrl.replace(/\/$/, '')}/webhook/set/${encodeURIComponent(resolved.instance)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: resolved.apiKey,
+        },
+        body: JSON.stringify({
+          enabled: input.enabled,
+          url: input.url,
+          webhookByEvents: input.webhookByEvents ?? false,
+          webhookBase64: input.webhookBase64 ?? false,
+          events:
+            input.events ?? ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE'],
+        }),
+        cache: 'no-store',
+      }
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Falha ao acessar Evolution API.';
+    return {
+      ok: false,
+      status: 502,
+      message: `Falha ao acessar Evolution API: ${message}`,
+    };
+  }
 
   let payload: unknown = null;
   try {
@@ -188,7 +225,7 @@ export async function setEvolutionWebhook(input: {
 }
 
 export async function checkEvolutionConnection(config?: EvolutionConfig | null): Promise<EvolutionConnectionCheckResult> {
-  const resolved = config ?? getEvolutionConfig();
+  const resolved = normalizeEvolutionConfig(config ?? getEvolutionConfig());
   if (!resolved) {
     return {
       ok: false,
@@ -256,7 +293,7 @@ export async function checkEvolutionConnection(config?: EvolutionConfig | null):
 }
 
 export async function sendTextWithEvolution(input: EvolutionSendTextInput) {
-  const config = input.config ?? getEvolutionConfig();
+  const config = normalizeEvolutionConfig(input.config ?? getEvolutionConfig());
   if (!config) {
     return {
       ok: false,
@@ -265,19 +302,29 @@ export async function sendTextWithEvolution(input: EvolutionSendTextInput) {
     } as const;
   }
 
-  const response = await fetch(`${config.baseUrl}/message/sendText/${encodeURIComponent(config.instance)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: config.apiKey,
-    },
-    body: JSON.stringify({
-      number: input.phone,
-      delay: input.delay ?? 0,
-      text: input.message,
-    }),
-    cache: 'no-store',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/message/sendText/${encodeURIComponent(config.instance)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: config.apiKey,
+      },
+      body: JSON.stringify({
+        number: input.phone,
+        delay: input.delay ?? 0,
+        text: input.message,
+      }),
+      cache: 'no-store',
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Falha ao acessar Evolution API.';
+    return {
+      ok: false,
+      status: 502,
+      error: `Falha ao acessar Evolution API: ${message}`,
+    } as const;
+  }
 
   let payload: unknown = null;
   try {

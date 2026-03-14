@@ -67,6 +67,23 @@ function toNullable(value?: string) {
   return trimmed ? trimmed : null;
 }
 
+function looksLikeHttpUrl(value: string) {
+  return /^https?:\/\//i.test(String(value || '').trim());
+}
+
+function normalizeAuthFields(input: { instanceUrl?: string; instanceName?: string }) {
+  let instanceUrl = String(input.instanceUrl || '').trim();
+  let instanceName = String(input.instanceName || '').trim();
+
+  if (!looksLikeHttpUrl(instanceUrl) && looksLikeHttpUrl(instanceName)) {
+    const old = instanceUrl;
+    instanceUrl = instanceName;
+    instanceName = old;
+  }
+
+  return { instanceUrl, instanceName };
+}
+
 function asBaseUrl(value: string) {
   return value.trim().replace(/\/$/, '');
 }
@@ -201,6 +218,10 @@ export async function POST(req: Request) {
   }
 
   const body = parsed.data;
+  const normalizedAuth = normalizeAuthFields({
+    instanceUrl: body.instanceUrl ?? '',
+    instanceName: body.instanceName ?? '',
+  });
   const min = body.typingIntervalMinSeconds ?? 0;
   const max = body.typingIntervalMaxSeconds ?? 2;
   if (max < min) return json({ error: 'Intervalo invalido: max deve ser maior ou igual ao min.' }, 400);
@@ -209,8 +230,8 @@ export async function POST(req: Request) {
     organization_id: ctx.organizationId,
     provider: 'evolution',
     connection_name: body.connectionName,
-    instance_url: toNullable(body.instanceUrl),
-    instance_name: toNullable(body.instanceName),
+    instance_url: toNullable(normalizedAuth.instanceUrl),
+    instance_name: toNullable(normalizedAuth.instanceName),
     api_key: toNullable(body.apiKey),
     typing_enabled: body.typingEnabled ?? false,
     typing_interval_min_seconds: min,
@@ -259,8 +280,8 @@ export async function POST(req: Request) {
   const webhook = await syncEvolutionWebhook({
     req,
     config: toEvolutionConfig({
-      instanceUrl: body.instanceUrl,
-      instanceName: body.instanceName,
+      instanceUrl: normalizedAuth.instanceUrl,
+      instanceName: normalizedAuth.instanceName,
       apiKey: body.apiKey,
     }),
     enabled: body.active ?? true,
