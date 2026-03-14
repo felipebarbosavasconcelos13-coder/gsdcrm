@@ -10,6 +10,44 @@ const PostSchema = z.object({
   contactName: z.string().optional(),
 });
 
+type ChatMessageRow = {
+  id: string;
+  phone: string;
+  contact_name: string | null;
+  direction: 'in' | 'out';
+  message: string;
+  provider: string;
+  external_message_id: string | null;
+  created_at: string;
+};
+
+type ChatMessageWithMetadataRow = ChatMessageRow & {
+  metadata: unknown;
+};
+
+function metadataContainsPhone(metadata: unknown, targetDigits: string): boolean {
+  if (!metadata || typeof metadata !== 'object' || !targetDigits) return false;
+
+  let serialized = '';
+  try {
+    serialized = JSON.stringify(metadata);
+  } catch {
+    return false;
+  }
+
+  if (!serialized) return false;
+
+  const matches = serialized.match(/[+0-9][0-9@()\s.-]{7,}/g) ?? [];
+  for (const raw of matches) {
+    const jidTrimmed = raw.includes('@') ? raw.split('@')[0] : raw;
+    const candidate = toWhatsAppPhone(jidTrimmed);
+    const digits = String(candidate || '').replace(/\D/g, '');
+    if (digits && digits === targetDigits) return true;
+  }
+
+  return false;
+}
+
 async function getUserOrgContext() {
   const supabase = await createClient();
   const {
@@ -76,11 +114,48 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Falha ao buscar mensagens.' }, { status: 500 });
     }
 
+    const exactMessages: ChatMessageRow[] = Array.isArray(data) ? (data as ChatMessageRow[]) : [];
+    const hasInboundForPhone = exactMessages.some((message) => message.direction === 'in');
+    let mergedMessages = exactMessages;
+
+    if (!hasInboundForPhone) {
+      const phoneDigits = normalizedPhone.replace('+', '');
+      const { data: fallbackInbound } = await ctx.supabase
+        .from('whatsapp_messages')
+        .select('id,phone,contact_name,direction,message,provider,external_message_id,created_at,metadata')
+        .eq('organization_id', ctx.organizationId)
+        .eq('direction', 'in')
+        .neq('phone', normalizedPhone)
+        .order('created_at', { ascending: false })
+        .limit(120);
+
+      const recoveredInbound = ((fallbackInbound ?? []) as ChatMessageWithMetadataRow[])
+        .filter((row) => metadataContainsPhone(row.metadata, phoneDigits))
+        .map((row) => ({
+          id: row.id,
+          phone: normalizedPhone,
+          contact_name: row.contact_name,
+          direction: row.direction,
+          message: row.message,
+          provider: row.provider,
+          external_message_id: row.external_message_id,
+          created_at: row.created_at,
+        }));
+
+      const byId = new Map<string, ChatMessageRow>();
+      [...exactMessages, ...recoveredInbound].forEach((row) => {
+        byId.set(String(row.id), row);
+      });
+      mergedMessages = Array.from(byId.values()).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+    }
+
     return NextResponse.json({
       ok: true,
       configured: isConfigured,
       phone: normalizedPhone,
-      messages: data ?? [],
+      messages: mergedMessages,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro interno.';

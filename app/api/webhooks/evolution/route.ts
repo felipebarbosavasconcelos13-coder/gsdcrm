@@ -32,55 +32,208 @@ function boolFromAny(value: unknown) {
   return false;
 }
 
-function collectPhoneCandidates(raw: any, data: any, key: any, preferSenderFields: boolean) {
-  const senderFirst = [
+function toPhoneDigitsStrict(value: unknown): string {
+  const raw = jidToId(value);
+  if (!raw) return '';
+  const normalized = toWhatsAppPhone(raw);
+  const digits = String(normalized || '').replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 15) return '';
+  return digits;
+}
+
+function toPhoneWithPlus(value: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return raw.startsWith('+') ? raw : `+${raw}`;
+}
+
+function uniquePhones(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = toPhoneDigitsStrict(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function collectMessageContextCandidates(message: any): string[] {
+  if (!message || typeof message !== 'object') return [];
+
+  const values = [
+    message?.extendedTextMessage?.contextInfo?.participant,
+    message?.imageMessage?.contextInfo?.participant,
+    message?.videoMessage?.contextInfo?.participant,
+    message?.documentMessage?.contextInfo?.participant,
+    message?.audioMessage?.contextInfo?.participant,
+    message?.stickerMessage?.contextInfo?.participant,
+    message?.contactMessage?.vcard,
+  ];
+
+  return uniquePhones(values.map((v) => String(v ?? '')));
+}
+
+function collectDeepPhoneCandidates(node: unknown): string[] {
+  const queue: Array<{ value: unknown; key: string; depth: number }> = [
+    { value: node, key: '', depth: 0 },
+  ];
+  const visited = new Set<object>();
+  const found: string[] = [];
+  let traversed = 0;
+
+  while (queue.length > 0 && traversed < 800) {
+    traversed += 1;
+    const current = queue.shift();
+    if (!current) break;
+
+    const { value, key, depth } = current;
+    if (value == null) continue;
+
+    if (typeof value === 'string' || typeof value === 'number') {
+      const asText = String(value);
+      if (asText.length > 220) continue;
+
+      const keyHint = /jid|phone|number|participant|remote|sender|from|to|owner|chat/i.test(key);
+      const valueHint = asText.includes('@') || /^\+?\d[\d()\s.-]{8,}$/.test(asText);
+      if (!keyHint && !valueHint) continue;
+
+      const candidate = toPhoneDigitsStrict(asText);
+      if (candidate) found.push(candidate);
+      continue;
+    }
+
+    if (typeof value !== 'object') continue;
+    if (visited.has(value as object)) continue;
+    visited.add(value as object);
+
+    if (depth >= 6) continue;
+
+    if (Array.isArray(value)) {
+      value.forEach((entry) => queue.push({ value: entry, key, depth: depth + 1 }));
+      continue;
+    }
+
+    Object.entries(value).forEach(([entryKey, entryValue]) => {
+      queue.push({ value: entryValue, key: entryKey, depth: depth + 1 });
+    });
+  }
+
+  return uniquePhones(found);
+}
+
+function collectOwnerPhoneCandidates(raw: any, data: any): string[] {
+  return uniquePhones(
+    [
+      raw?.sender?.phone,
+      raw?.sender?.id,
+      raw?.sender,
+      raw?.owner?.phone,
+      raw?.owner?.id,
+      raw?.owner,
+      raw?.me?.phone,
+      raw?.me?.id,
+      data?.owner?.phone,
+      data?.owner?.id,
+      data?.owner,
+      data?.me?.phone,
+      data?.me?.id,
+      data?.instanceOwner,
+      data?.instancePhone,
+      data?.instanceJid,
+    ].map((v) => String(v ?? ''))
+  );
+}
+
+function collectPhoneCandidates(raw: any, data: any, key: any, fromMe: boolean) {
+  const participantFields = [
     key?.participant,
     data?.participant,
+    data?.messages?.[0]?.key?.participant,
+    data?.messages?.[0]?.participant,
     data?.sender?.phone,
     data?.sender?.id,
     data?.sender,
     data?.from,
     data?.fromNumber,
-    data?.messages?.[0]?.key?.participant,
-    data?.messages?.[0]?.participant,
-    raw?.sender?.phone,
-    raw?.sender?.id,
-    raw?.sender,
-    raw?.from,
   ];
 
   const chatFields = [
     key?.remoteJid,
     data?.remoteJid,
     data?.chatId,
+    data?.key?.remoteJid,
     data?.messages?.[0]?.key?.remoteJid,
+    raw?.data?.key?.remoteJid,
+    raw?.data?.messages?.[0]?.key?.remoteJid,
   ];
 
-  const ordered = preferSenderFields ? [...senderFirst, ...chatFields] : [...chatFields, ...senderFirst];
+  const fallbackFields = [
+    raw?.from,
+    raw?.sender?.phone,
+    raw?.sender?.id,
+    raw?.sender,
+    raw?.data?.from,
+    raw?.data?.sender?.phone,
+    raw?.data?.sender?.id,
+    raw?.data?.sender,
+  ];
 
-  return ordered
-    .map(jidToId)
-    .map((v) => toWhatsAppPhone(v))
-    .filter((v, idx, arr) => Boolean(v) && arr.indexOf(v) === idx);
+  const messageNode =
+    data?.message ??
+    data?.messages?.[0]?.message ??
+    raw?.data?.message ??
+    raw?.data?.messages?.[0]?.message ??
+    {};
+  const contextFields = collectMessageContextCandidates(messageNode);
+  const deepFields = collectDeepPhoneCandidates(raw);
+
+  const ordered = fromMe
+    ? [...participantFields, ...chatFields, ...contextFields, ...fallbackFields, ...deepFields]
+    : [...chatFields, ...participantFields, ...contextFields, ...fallbackFields, ...deepFields];
+
+  return uniquePhones(ordered.map((v) => String(v ?? '')));
 }
 
-function pickBestPhone(raw: any, data: any, key: any, fromMe: boolean): string {
+function pickBestPhone(raw: any, data: any, key: any, fromMe: boolean) {
   const remoteJidRaw = String(key?.remoteJid ?? data?.remoteJid ?? '').trim();
-  const remoteId = toWhatsAppPhone(jidToId(remoteJidRaw));
-  const all = collectPhoneCandidates(raw, data, key, !fromMe);
+  const remoteId = toPhoneDigitsStrict(remoteJidRaw);
+  const all = collectPhoneCandidates(raw, data, key, fromMe);
+  const ownerCandidates = collectOwnerPhoneCandidates(raw, data);
+  const ownerSet = new Set(ownerCandidates);
+  const nonOwnerCandidates = all.filter((candidate) => !ownerSet.has(candidate));
+  const candidatesPool = nonOwnerCandidates.length > 0 ? nonOwnerCandidates : all;
 
-  // Prefer BR number when available (produto atual é focado em BR).
-  const br = all.find((p) => p.startsWith('55') && p.length >= 12 && p.length <= 13);
-  if (br) return br;
-
-  // If remoteJid is LID and no BR candidate, fallback to another non-LID candidate.
   const isLid = remoteJidRaw.endsWith('@lid');
-  if (isLid) {
-    const nonLid = all.find((p) => p !== remoteId);
-    if (nonLid) return nonLid;
+  if (!isLid && remoteId && candidatesPool.includes(remoteId)) {
+    return { primary: remoteId, candidates: all, ownerCandidates };
   }
 
-  return remoteId || all[0] || '';
+  const participantCandidates = uniquePhones(
+    [
+      key?.participant,
+      data?.participant,
+      data?.messages?.[0]?.key?.participant,
+      data?.messages?.[0]?.participant,
+    ].map((value) => String(value ?? ''))
+  );
+
+  const participantPreferred = participantCandidates.find((candidate) =>
+    candidatesPool.includes(candidate)
+  );
+  if (participantPreferred) {
+    return { primary: participantPreferred, candidates: all, ownerCandidates };
+  }
+
+  if (remoteId && candidatesPool.includes(remoteId)) {
+    return { primary: remoteId, candidates: all, ownerCandidates };
+  }
+
+  const br = candidatesPool.find((p) => p.startsWith('55') && p.length >= 12 && p.length <= 13);
+  if (br) return { primary: br, candidates: all, ownerCandidates };
+
+  return { primary: candidatesPool[0] || remoteId || '', candidates: all, ownerCandidates };
 }
 
 function pickInstanceName(raw: any): string {
@@ -162,6 +315,8 @@ async function persistInboundMessage(input: {
   connectionId?: string;
   instanceName: string;
   phone: string;
+  phoneCandidates?: string[];
+  ownerPhoneCandidates?: string[];
   contactName: string;
   message: string;
   externalMessageId: string;
@@ -170,11 +325,91 @@ async function persistInboundMessage(input: {
   try {
     const admin = createStaticAdminClient();
     const organizationId = await resolveOrganizationId(admin, input.instanceName, input.connectionId);
-    if (!organizationId) return;
+    if (!organizationId) return null;
+
+    const allCandidatesWithPlus = uniquePhones([
+      input.phone,
+      ...(input.phoneCandidates ?? []),
+    ]).map(toPhoneWithPlus);
+
+    const ownerCandidatesWithPlus = new Set(
+      uniquePhones(input.ownerPhoneCandidates ?? []).map(toPhoneWithPlus)
+    );
+
+    const candidatesPool = allCandidatesWithPlus.filter((candidate) => !ownerCandidatesWithPlus.has(candidate));
+    const effectiveCandidates = candidatesPool.length > 0 ? candidatesPool : allCandidatesWithPlus;
+
+    let selectedPhone = toPhoneWithPlus(toPhoneDigitsStrict(input.phone));
+    if (!selectedPhone && effectiveCandidates.length > 0) {
+      selectedPhone = effectiveCandidates[0];
+    }
+
+    if (effectiveCandidates.length > 1) {
+      const scores = new Map<string, number>();
+      for (const candidate of effectiveCandidates) scores.set(candidate, 0);
+
+      if (selectedPhone && scores.has(selectedPhone)) {
+        scores.set(selectedPhone, (scores.get(selectedPhone) ?? 0) + 20);
+      }
+
+      for (const ownerCandidate of ownerCandidatesWithPlus) {
+        if (scores.has(ownerCandidate)) {
+          scores.set(ownerCandidate, (scores.get(ownerCandidate) ?? 0) - 350);
+        }
+      }
+
+      const { data: recentMessages } = await admin
+        .from('whatsapp_messages')
+        .select('phone,direction,created_at')
+        .eq('organization_id', organizationId)
+        .in('phone', effectiveCandidates)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (Array.isArray(recentMessages)) {
+        recentMessages.forEach((row, index) => {
+          const phone = String(row.phone || '').trim();
+          if (!scores.has(phone)) return;
+
+          const base = row.direction === 'out' ? 1000 : 120;
+          const recency = Math.max(1, 50 - index);
+          scores.set(phone, (scores.get(phone) ?? 0) + base + recency);
+        });
+      }
+
+      const { data: contacts } = await admin
+        .from('contacts')
+        .select('phone')
+        .eq('organization_id', organizationId)
+        .in('phone', effectiveCandidates)
+        .limit(effectiveCandidates.length);
+
+      if (Array.isArray(contacts)) {
+        contacts.forEach((row) => {
+          const phone = String(row.phone || '').trim();
+          if (!scores.has(phone)) return;
+          scores.set(phone, (scores.get(phone) ?? 0) + 600);
+        });
+      }
+
+      let bestPhone = selectedPhone || effectiveCandidates[0];
+      let bestScore = scores.get(bestPhone) ?? Number.NEGATIVE_INFINITY;
+      for (const [candidate, score] of scores.entries()) {
+        if (score > bestScore) {
+          bestPhone = candidate;
+          bestScore = score;
+        }
+      }
+      selectedPhone = bestPhone;
+    }
+
+    if (!selectedPhone) {
+      return null;
+    }
 
     const { error } = await admin.from('whatsapp_messages').insert({
       organization_id: organizationId,
-      phone: input.phone,
+      phone: selectedPhone,
       contact_name: input.contactName,
       direction: 'in',
       message: input.message || 'Mensagem recebida via WhatsApp (sem texto).',
@@ -191,8 +426,10 @@ async function persistInboundMessage(input: {
         // keep best-effort behavior: do not break webhook flow
       }
     }
+    return selectedPhone;
   } catch {
     // Best effort only: webhook forwarding should continue even if persistence fails.
+    return null;
   }
 }
 
@@ -236,31 +473,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'Sem remetente valido.' }, { status: 202 });
     }
 
-    const phoneDigits = pickBestPhone(raw, data, key, fromMe);
-    if (!phoneDigits) {
+    const phoneResolution = pickBestPhone(raw, data, key, fromMe);
+    if (!phoneResolution.primary) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'Telefone invalido no evento.' }, { status: 202 });
     }
 
     const text = getTextFromMessageNode(messageNode);
     const pushName = String(data?.pushName ?? data?.messages?.[0]?.pushName ?? '').trim();
-    const externalEventId = String(key?.id ?? data?.id ?? `${Date.now()}-${phoneDigits}`).trim();
+    const externalEventId = String(key?.id ?? data?.id ?? `${Date.now()}-${phoneResolution.primary}`).trim();
 
-    await persistInboundMessage({
-      connectionId,
-      instanceName: pickInstanceName(raw),
-      phone: `+${phoneDigits}`,
-      contactName: pushName || `WhatsApp ${phoneDigits}`,
-      message: text,
-      externalMessageId: externalEventId,
-      metadata: raw,
-    });
+    const persistedPhone =
+      (await persistInboundMessage({
+        connectionId,
+        instanceName: pickInstanceName(raw),
+        phone: `+${phoneResolution.primary}`,
+        phoneCandidates: phoneResolution.candidates,
+        ownerPhoneCandidates: phoneResolution.ownerCandidates,
+        contactName: pushName || `WhatsApp ${phoneResolution.primary}`,
+        message: text,
+        externalMessageId: externalEventId,
+        metadata: raw,
+      })) ?? `+${phoneResolution.primary}`;
 
     const payload = {
       external_event_id: externalEventId,
-      contact_name: pushName || `WhatsApp ${phoneDigits}`,
-      phone: `+${phoneDigits}`,
+      contact_name: pushName || `WhatsApp ${phoneResolution.primary}`,
+      phone: persistedPhone,
       source: 'evolution-whatsapp',
-      deal_title: pushName ? `WhatsApp - ${pushName}` : `WhatsApp - ${phoneDigits}`,
+      deal_title: pushName ? `WhatsApp - ${pushName}` : `WhatsApp - ${phoneResolution.primary}`,
       notes: text || 'Mensagem recebida via WhatsApp (sem texto).',
     };
 
