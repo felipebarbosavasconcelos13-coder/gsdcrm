@@ -104,19 +104,25 @@ async function persistInboundMessage(input: {
     const organizationId = await resolveOrganizationId(admin, input.instanceName, input.connectionId);
     if (!organizationId) return;
 
-    await admin.from('whatsapp_messages').upsert(
-      {
-        organization_id: organizationId,
-        phone: input.phone,
-        contact_name: input.contactName,
-        direction: 'in',
-        message: input.message || 'Mensagem recebida via WhatsApp (sem texto).',
-        provider: 'evolution',
-        external_message_id: input.externalMessageId,
-        metadata: input.metadata ?? {},
-      },
-      { onConflict: 'organization_id,external_message_id', ignoreDuplicates: true }
-    );
+    const { error } = await admin.from('whatsapp_messages').insert({
+      organization_id: organizationId,
+      phone: input.phone,
+      contact_name: input.contactName,
+      direction: 'in',
+      message: input.message || 'Mensagem recebida via WhatsApp (sem texto).',
+      provider: 'evolution',
+      external_message_id: input.externalMessageId,
+      metadata: input.metadata ?? {},
+    });
+
+    // Duplicado de evento é esperado em retries do provedor.
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      const isDuplicate = msg.includes('duplicate') || msg.includes('unique');
+      if (!isDuplicate) {
+        // keep best-effort behavior: do not break webhook flow
+      }
+    }
   } catch {
     // Best effort only: webhook forwarding should continue even if persistence fails.
   }
