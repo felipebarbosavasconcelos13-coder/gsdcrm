@@ -47,6 +47,16 @@ function toPhoneWithPlus(value: string): string {
   return raw.startsWith('+') ? raw : `+${raw}`;
 }
 
+function isLikelyOpaqueWhatsAppId(phoneWithPlus: string): boolean {
+  const digits = String(phoneWithPlus || '').replace(/\D/g, '');
+  if (!digits) return false;
+  // IDs LID comuns da Meta (não são telefone real do lead).
+  if (digits.startsWith('16') && digits.length >= 14) return true;
+  // Telefones válidos normalmente ficam até 15 dígitos E.164; ids muito longos tendem a ser opacos.
+  if (digits.length > 15) return true;
+  return false;
+}
+
 function uniquePhones(values: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -121,6 +131,56 @@ function collectDeepPhoneCandidates(node: unknown): string[] {
   }
 
   return uniquePhones(found);
+}
+
+function collectRawIdentifierCandidates(node: unknown): string[] {
+  const queue: Array<{ value: unknown; depth: number }> = [{ value: node, depth: 0 }];
+  const visited = new Set<object>();
+  const found = new Set<string>();
+  let traversed = 0;
+
+  while (queue.length > 0 && traversed < 1200) {
+    traversed += 1;
+    const current = queue.shift();
+    if (!current) break;
+
+    const { value, depth } = current;
+    if (value == null) continue;
+
+    if (typeof value === 'string') {
+      if (value.length <= 240) {
+        const text = value.trim();
+        const hasJid = /@[a-z]/i.test(text);
+        const hasLongDigits = /\d{10,}/.test(text);
+        if (hasJid || hasLongDigits) {
+          found.add(text);
+        }
+      }
+      continue;
+    }
+
+    if (typeof value === 'number') {
+      const text = String(value);
+      if (text.length >= 10 && text.length <= 22) {
+        found.add(text);
+      }
+      continue;
+    }
+
+    if (typeof value !== 'object') continue;
+    if (visited.has(value as object)) continue;
+    visited.add(value as object);
+    if (depth >= 6) continue;
+
+    if (Array.isArray(value)) {
+      value.forEach((entry) => queue.push({ value: entry, depth: depth + 1 }));
+      continue;
+    }
+
+    Object.values(value).forEach((entry) => queue.push({ value: entry, depth: depth + 1 }));
+  }
+
+  return Array.from(found).slice(0, 120);
 }
 
 function collectOwnerPhoneCandidates(raw: any, data: any): string[] {
@@ -317,6 +377,7 @@ async function persistInboundMessage(input: {
   phone: string;
   phoneCandidates?: string[];
   ownerPhoneCandidates?: string[];
+  rawIdentifiers?: string[];
   contactName: string;
   message: string;
   externalMessageId: string;
@@ -407,6 +468,75 @@ async function persistInboundMessage(input: {
       return null;
     }
 
+    // Fallback para payloads LID/IDs opacos: tenta correlacionar com mensagens outbound recentes.
+    if (isLikelyOpaqueWhatsAppId(selectedPhone)) {
+      const ids = (input.rawIdentifiers ?? []).filter(Boolean);
+      const scores = new Map<string, number>();
+
+      const { data: recentOutForCorrelation } = await admin
+        .from('whatsapp_messages')
+        .select('phone,contact_name,metadata,created_at')
+        .eq('organization_id', organizationId)
+        .eq('direction', 'out')
+        .order('created_at', { ascending: false })
+        .limit(120);
+
+      if (Array.isArray(recentOutForCorrelation)) {
+        recentOutForCorrelation.forEach((row, index) => {
+          const outPhone = String(row.phone || '').trim();
+          if (!outPhone) return;
+          if (!scores.has(outPhone)) scores.set(outPhone, 0);
+
+          const recencyBoost = Math.max(1, 120 - index);
+          scores.set(outPhone, (scores.get(outPhone) ?? 0) + recencyBoost);
+
+          const contactName = String(row.contact_name || '').trim().toLowerCase();
+          const inboundName = String(input.contactName || '').trim().toLowerCase();
+          if (contactName && inboundName && contactName === inboundName) {
+            scores.set(outPhone, (scores.get(outPhone) ?? 0) + 250);
+          }
+
+          if (ids.length > 0) {
+            let metadataText = '';
+            try {
+              metadataText = JSON.stringify((row as { metadata?: unknown }).metadata ?? {});
+            } catch {
+              metadataText = '';
+            }
+            if (metadataText) {
+              for (const identifier of ids) {
+                if (identifier.length < 6) continue;
+                if (metadataText.includes(identifier)) {
+                  scores.set(outPhone, (scores.get(outPhone) ?? 0) + 2000);
+                  break;
+                }
+              }
+            }
+          }
+        });
+      }
+
+      const best = Array.from(scores.entries()).sort((a, b) => b[1] - a[1])[0];
+      if (best?.[0] && best[1] >= 200) {
+        selectedPhone = best[0];
+      } else {
+        const { data: veryRecentOut } = await admin
+          .from('whatsapp_messages')
+          .select('phone,created_at')
+          .eq('organization_id', organizationId)
+          .eq('direction', 'out')
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        const distinctRecentPhones = Array.from(
+          new Set((veryRecentOut ?? []).map((row) => String(row.phone || '').trim()).filter(Boolean))
+        );
+        if (distinctRecentPhones.length === 1) {
+          selectedPhone = distinctRecentPhones[0];
+        }
+      }
+    }
+
     const { error } = await admin.from('whatsapp_messages').insert({
       organization_id: organizationId,
       phone: selectedPhone,
@@ -477,6 +607,7 @@ export async function POST(req: Request) {
     if (!phoneResolution.primary) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'Telefone invalido no evento.' }, { status: 202 });
     }
+    const rawIdentifiers = collectRawIdentifierCandidates(raw);
 
     const text = getTextFromMessageNode(messageNode);
     const pushName = String(data?.pushName ?? data?.messages?.[0]?.pushName ?? '').trim();
@@ -489,6 +620,7 @@ export async function POST(req: Request) {
         phone: `+${phoneResolution.primary}`,
         phoneCandidates: phoneResolution.candidates,
         ownerPhoneCandidates: phoneResolution.ownerCandidates,
+        rawIdentifiers,
         contactName: pushName || `WhatsApp ${phoneResolution.primary}`,
         message: text,
         externalMessageId: externalEventId,
