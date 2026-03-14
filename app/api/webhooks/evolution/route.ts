@@ -468,8 +468,27 @@ async function persistInboundMessage(input: {
       return null;
     }
 
-    // Fallback para payloads LID/IDs opacos: tenta correlacionar com mensagens outbound recentes.
-    if (isLikelyOpaqueWhatsAppId(selectedPhone)) {
+    const { data: selectedContactRows } = await admin
+      .from('contacts')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('phone', selectedPhone)
+      .limit(1);
+
+    const { data: selectedOutRows } = await admin
+      .from('whatsapp_messages')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('direction', 'out')
+      .eq('phone', selectedPhone)
+      .limit(1);
+
+    const selectedIsKnown =
+      (selectedContactRows ?? []).length > 0 || (selectedOutRows ?? []).length > 0;
+
+    // Fallback para payloads LID/IDs opacos OU telefones desconhecidos:
+    // tenta correlacionar com mensagens outbound recentes.
+    if (isLikelyOpaqueWhatsAppId(selectedPhone) || !selectedIsKnown) {
       const ids = (input.rawIdentifiers ?? []).filter(Boolean);
       const scores = new Map<string, number>();
 
@@ -517,7 +536,7 @@ async function persistInboundMessage(input: {
       }
 
       const best = Array.from(scores.entries()).sort((a, b) => b[1] - a[1])[0];
-      if (best?.[0] && best[1] >= 200) {
+      if (best?.[0] && best[1] >= 150) {
         selectedPhone = best[0];
       } else {
         const { data: veryRecentOut } = await admin
