@@ -2,6 +2,9 @@
 import { createClient } from '@/lib/supabase/server';
 import { isAllowedOrigin } from '@/lib/security/sameOrigin';
 import { setEvolutionWebhook, type EvolutionConfig } from '@/lib/integrations/evolution/client';
+import { ensureWhatsAppSchema } from '@/lib/integrations/whatsapp/ensureSchema';
+
+export const runtime = 'nodejs';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -176,6 +179,11 @@ export async function GET() {
   const ctx = await getAdminContext();
   if ('error' in ctx) return ctx.error;
 
+  const schemaReady = await ensureWhatsAppSchema();
+  if (!schemaReady.ok && !schemaReady.skipped) {
+    return json({ error: schemaReady.message || 'Falha ao preparar tabelas do WhatsApp.' }, 500);
+  }
+
   const { data, error } = await ctx.supabase
     .from('organization_whatsapp_connections')
     .select('id,connection_name,instance_url,instance_name,api_key,typing_enabled,typing_interval_min_seconds,typing_interval_max_seconds,listen_groups,list_type,restore_enabled,restore_from,restore_to,active,created_at,updated_at')
@@ -212,6 +220,11 @@ export async function POST(req: Request) {
 
   const ctx = await getAdminContext();
   if ('error' in ctx) return ctx.error;
+
+  const schemaReady = await ensureWhatsAppSchema();
+  if (!schemaReady.ok && !schemaReady.skipped) {
+    return json({ error: schemaReady.message || 'Falha ao preparar tabelas do WhatsApp.' }, 500);
+  }
 
   const raw = await req.json().catch(() => null);
   const parsed = UpsertSchema.safeParse(raw);
@@ -290,7 +303,7 @@ export async function POST(req: Request) {
     connectionId: savedId ?? undefined,
   });
 
-  return json({ ok: true, id: savedId, webhook });
+  return json({ ok: true, id: savedId, webhook, schema: schemaReady });
 }
 
 export async function PATCH(req: Request) {

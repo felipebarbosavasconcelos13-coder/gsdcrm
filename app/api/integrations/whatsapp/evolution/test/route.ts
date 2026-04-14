@@ -2,6 +2,9 @@
 import { createClient } from '@/lib/supabase/server';
 import { isAllowedOrigin } from '@/lib/security/sameOrigin';
 import { checkEvolutionConnection, type EvolutionConfig } from '@/lib/integrations/evolution/client';
+import { ensureWhatsAppSchema } from '@/lib/integrations/whatsapp/ensureSchema';
+
+export const runtime = 'nodejs';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -46,6 +49,11 @@ export async function POST(req: Request) {
 
   const ctx = await getAdminContext();
   if ('error' in ctx) return ctx.error;
+
+  const schemaReady = await ensureWhatsAppSchema();
+  if (!schemaReady.ok && !schemaReady.skipped) {
+    return json({ error: schemaReady.message || 'Falha ao preparar tabelas do WhatsApp.' }, 500);
+  }
 
   const raw = await req.json().catch(() => null);
   const parsed = TestSchema.safeParse(raw);

@@ -401,6 +401,7 @@ export async function POST(req: Request) {
           { key: 'SUPABASE_SECRET_KEY', value: resolvedServiceRoleKey, targets: envTargets },
           // Legacy service_role key (fallback for older projects)
           { key: 'SUPABASE_SERVICE_ROLE_KEY', value: resolvedServiceRoleKey, targets: envTargets },
+          { key: 'SUPABASE_DB_URL', value: resolvedDbUrl, targets: envTargets },
         ],
         vercel.teamId || undefined
       );

@@ -209,6 +209,11 @@ export async function POST(req: Request) {
           targets: envTargets,
         },
         {
+          key: 'SUPABASE_DB_URL',
+          value: resolvedDbUrl,
+          targets: envTargets,
+        },
+        {
           key: 'INSTALLER_ENABLED',
           value: 'false',
           targets: envTargets,

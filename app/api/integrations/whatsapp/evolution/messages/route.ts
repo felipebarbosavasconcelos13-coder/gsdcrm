@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { toWhatsAppPhone } from '@/lib/phone';
 import { sendTextWithEvolution, type EvolutionConfig } from '@/lib/integrations/evolution/client';
+import { ensureWhatsAppSchema } from '@/lib/integrations/whatsapp/ensureSchema';
+
+export const runtime = 'nodejs';
 
 const PostSchema = z.object({
   phone: z.string().min(3),
@@ -89,6 +92,11 @@ export async function GET(req: Request) {
     const ctx = await getUserOrgContext();
     if ('error' in ctx) return ctx.error;
 
+    const schemaReady = await ensureWhatsAppSchema();
+    if (!schemaReady.ok && !schemaReady.skipped) {
+      return NextResponse.json({ error: schemaReady.message || 'Falha ao preparar tabelas do WhatsApp.' }, { status: 500 });
+    }
+
     const url = new URL(req.url);
     const rawPhone = url.searchParams.get('phone') ?? '';
     const phoneDigits = toWhatsAppPhone(rawPhone);
@@ -167,6 +175,11 @@ export async function POST(req: Request) {
   try {
     const ctx = await getUserOrgContext();
     if ('error' in ctx) return ctx.error;
+
+    const schemaReady = await ensureWhatsAppSchema();
+    if (!schemaReady.ok && !schemaReady.skipped) {
+      return NextResponse.json({ error: schemaReady.message || 'Falha ao preparar tabelas do WhatsApp.' }, { status: 500 });
+    }
 
     const body = PostSchema.parse(await req.json());
     const phoneDigits = toWhatsAppPhone(body.phone);
