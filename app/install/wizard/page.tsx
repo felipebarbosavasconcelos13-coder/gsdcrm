@@ -932,6 +932,15 @@ export default function InstallWizardPage() {
     setCineMessage('Analisando destino');
     setCineSubtitle('Verificando estado do projeto...');
     setCineProgress(0);
+    // DB access is required to apply migrations and to auto-provision WhatsApp tables.
+    // If SUPABASE_DB_URL is empty, a Supabase PAT is required so we can generate it automatically.
+    if (!supabaseDbUrl.trim() && !supabaseAccessToken.trim()) {
+      const msg =
+        'Falta acesso ao banco para concluir a instalacao. ' +
+        'Informe o Supabase Access Token (PAT) para gerar a SUPABASE_DB_URL automaticamente ' +
+        'ou cole a SUPABASE_DB_URL manualmente.';
+      throw new Error(msg);
+    }
     
 
     // 🎮 Cria o estado inicial do "save game"
@@ -2135,3 +2144,4 @@ export default function InstallWizardPage() {
     </div>
   );
 }
+

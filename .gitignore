@@ -82,3 +82,6 @@ scripts/
 
 # Test documentation (test code stays, docs are local)
 test/*.md
+
+# local scratch / recovery
+scratch/
