@@ -8,7 +8,127 @@ function getTextFromMessageNode(message: any): string {
   if (typeof message.extendedTextMessage?.text === 'string') return message.extendedTextMessage.text;
   if (typeof message.imageMessage?.caption === 'string') return message.imageMessage.caption;
   if (typeof message.videoMessage?.caption === 'string') return message.videoMessage.caption;
+  if (typeof message.documentMessage?.caption === 'string') return message.documentMessage.caption;
+  if (typeof message.locationMessage?.name === 'string') return message.locationMessage.name;
+  if (typeof message.contactMessage?.displayName === 'string') return message.contactMessage.displayName;
   return '';
+}
+
+type WhatsAppMessageType =
+  | 'text'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'document'
+  | 'sticker'
+  | 'contact'
+  | 'location'
+  | 'unknown';
+
+type MediaInfo = {
+  messageType: WhatsAppMessageType;
+  caption?: string | null;
+  mediaUrl?: string | null;
+  mediaBase64?: string | null;
+  mimeType?: string | null;
+  fileName?: string | null;
+  fileSize?: number | null;
+  mediaSeconds?: number | null;
+  mediaWidth?: number | null;
+  mediaHeight?: number | null;
+};
+
+function asOptionalText(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || null;
+}
+
+function asOptionalNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+  return null;
+}
+
+function firstText(...values: unknown[]): string | null {
+  for (const value of values) {
+    const text = asOptionalText(value);
+    if (text) return text;
+  }
+  return null;
+}
+
+function normalizeBase64(value: unknown, mimeType?: string | null): string | null {
+  const text = asOptionalText(value);
+  if (!text) return null;
+  if (text.startsWith('data:')) return text;
+  if (/^https?:\/\//i.test(text)) return null;
+  return mimeType ? `data:${mimeType};base64,${text}` : text;
+}
+
+function mediaInfoFromMessage(message: any, raw: any, data: any): MediaInfo {
+  const image = message?.imageMessage;
+  const video = message?.videoMessage;
+  const audio = message?.audioMessage;
+  const document = message?.documentMessage;
+  const sticker = message?.stickerMessage;
+  const contact = message?.contactMessage;
+  const location = message?.locationMessage;
+
+  const node =
+    image || video || audio || document || sticker || contact || location || {};
+
+  const messageType: WhatsAppMessageType =
+    image ? 'image'
+      : video ? 'video'
+        : audio ? 'audio'
+          : document ? 'document'
+            : sticker ? 'sticker'
+              : contact ? 'contact'
+                : location ? 'location'
+                  : getTextFromMessageNode(message) ? 'text'
+                    : 'unknown';
+
+  const mimeType = firstText(node.mimetype, node.mimeType, data?.mimetype, raw?.mimetype);
+  const caption = firstText(node.caption, data?.caption, raw?.caption);
+  const mediaUrl = firstText(
+    node.url,
+    node.mediaUrl,
+    node.media_url,
+    data?.mediaUrl,
+    data?.media_url,
+    raw?.mediaUrl,
+    raw?.media_url
+  );
+  const mediaBase64 = normalizeBase64(
+    firstText(
+      node.base64,
+      node.mediaBase64,
+      node.media_base64,
+      data?.base64,
+      data?.mediaBase64,
+      data?.media_base64,
+      raw?.base64,
+      raw?.mediaBase64,
+      raw?.media_base64,
+      node.jpegThumbnail
+    ),
+    mimeType || (image || sticker ? 'image/jpeg' : null)
+  );
+
+  return {
+    messageType,
+    caption,
+    mediaUrl,
+    mediaBase64,
+    mimeType,
+    fileName: firstText(node.fileName, node.file_name, node.title, data?.fileName, raw?.fileName),
+    fileSize: asOptionalNumber(node.fileLength ?? node.fileSize ?? data?.fileLength ?? data?.fileSize),
+    mediaSeconds: asOptionalNumber(node.seconds ?? node.duration ?? data?.seconds ?? data?.duration),
+    mediaWidth: asOptionalNumber(node.width ?? data?.width),
+    mediaHeight: asOptionalNumber(node.height ?? data?.height),
+  };
 }
 
 function normalizeEvolutionEventName(raw: unknown) {
@@ -380,6 +500,7 @@ async function persistInboundMessage(input: {
   rawIdentifiers?: string[];
   contactName: string;
   message: string;
+  media: MediaInfo;
   externalMessageId: string;
   metadata: unknown;
 }) {
@@ -562,6 +683,16 @@ async function persistInboundMessage(input: {
       contact_name: input.contactName,
       direction: 'in',
       message: input.message || 'Mensagem recebida via WhatsApp (sem texto).',
+      message_type: input.media.messageType,
+      caption: input.media.caption ?? null,
+      media_url: input.media.mediaUrl ?? null,
+      media_base64: input.media.mediaBase64 ?? null,
+      mime_type: input.media.mimeType ?? null,
+      file_name: input.media.fileName ?? null,
+      file_size: input.media.fileSize ?? null,
+      media_seconds: input.media.mediaSeconds ?? null,
+      media_width: input.media.mediaWidth ?? null,
+      media_height: input.media.mediaHeight ?? null,
       provider: 'evolution',
       external_message_id: input.externalMessageId,
       metadata: input.metadata ?? {},
@@ -629,6 +760,7 @@ export async function POST(req: Request) {
     const rawIdentifiers = collectRawIdentifierCandidates(raw);
 
     const text = getTextFromMessageNode(messageNode);
+    const media = mediaInfoFromMessage(messageNode, raw, data);
     const pushName = String(data?.pushName ?? data?.messages?.[0]?.pushName ?? '').trim();
     const externalEventId = String(key?.id ?? data?.id ?? `${Date.now()}-${phoneResolution.primary}`).trim();
 
@@ -641,7 +773,8 @@ export async function POST(req: Request) {
         ownerPhoneCandidates: phoneResolution.ownerCandidates,
         rawIdentifiers,
         contactName: pushName || `WhatsApp ${phoneResolution.primary}`,
-        message: text,
+        message: text || media.caption || '',
+        media,
         externalMessageId: externalEventId,
         metadata: raw,
       })) ?? `+${phoneResolution.primary}`;
@@ -652,7 +785,7 @@ export async function POST(req: Request) {
       phone: persistedPhone,
       source: 'evolution-whatsapp',
       deal_title: pushName ? `WhatsApp - ${pushName}` : `WhatsApp - ${phoneResolution.primary}`,
-      notes: text || 'Mensagem recebida via WhatsApp (sem texto).',
+      notes: text || media.caption || `Mensagem ${media.messageType} recebida via WhatsApp.`,
     };
 
     // Forward para webhook-in é opcional. Se as envs não estiverem definidas,

@@ -162,7 +162,7 @@ async function syncEvolutionWebhook(params: {
     url: webhookUrl,
     enabled: params.enabled,
     webhookByEvents: false,
-    webhookBase64: false,
+    webhookBase64: true,
     events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE'],
   });
 

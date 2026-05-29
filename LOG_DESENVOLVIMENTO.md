@@ -13,3 +13,19 @@
 - Validacoes finais executadas com sucesso: `npm run lint`, `npm run typecheck`, `npm run test:run` (101 testes aprovados, 5 pulados) e `npm run build`.
 - Ajustado estado local de configuracao de IA para atualizar `aiHas*Key` imediatamente ao salvar ou remover uma chave, sem depender de reload.
 - Validacoes repetidas apos ajuste de estado de IA: `npm run lint`, `npm run typecheck`, `npm run test:run` (101 testes aprovados, 5 pulados) e `npm run build` passaram novamente.
+
+## 2026-05-29 - WhatsApp multimidia
+
+- Iniciado escopo para completar o chat WhatsApp com envio/recebimento de texto, audio, imagem, video e documento.
+- Mapeamento inicial: envio atual usa apenas `sendTextWithEvolution`; webhook persiste apenas texto/caption em `whatsapp_messages.message`; painel `WhatsAppChatPanel` renderiza somente bolhas de texto.
+- Referencia tecnica verificada: Evolution API v2 possui `/message/sendMedia/{instance}` para imagem/video/documento e `/message/sendWhatsAppAudio/{instance}` para audio.
+- Adicionada migration `20260529173000_whatsapp_message_media.sql` com colunas multimidia em `whatsapp_messages` e incluida no `ensureWhatsAppSchema`.
+- Webhook Evolution passou a detectar `text`, `image`, `video`, `audio`, `document`, `sticker`, `contact`, `location` e persistir caption, mime type, arquivo, dimensoes/duracao, URL e base64 quando disponiveis.
+- Configuracao do webhook Evolution agora solicita `webhookBase64: true` para permitir recebimento/renderizacao de midia quando a instancia suportar.
+- Cliente Evolution ganhou `sendMediaWithEvolution` para imagem/video/documento e `sendAudioWithEvolution` para audio via endpoints oficiais.
+- Rotas `/api/integrations/whatsapp/evolution/messages` e `/send` agora aceitam `messageType`, `media`, `mimeType`, `fileName` e gravam historico multimidia.
+- Auto-provisionamento do schema WhatsApp passou a reaplicar migrations quando `whatsapp_messages` existe sem as novas colunas de midia.
+- `WhatsAppChatPanel` ganhou anexo de arquivo, preview removivel, envio com legenda opcional e renderizacao de imagem, sticker, video, audio e documentos no historico.
+- Fallback de busca de mensagens por metadata agora preserva tambem os campos multimidia recuperados.
+- Renderizacao de imagem/sticker no chat ajustada para `next/image` sem otimizacao remota, evitando warning de lint com data URLs.
+- Validacoes apos WhatsApp multimidia: `npm run lint`, `npm run typecheck`, `npm run test:run` (101 testes aprovados, 5 pulados) e `npm run build` passaram.

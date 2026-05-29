@@ -5,6 +5,7 @@ import { Client } from 'pg';
 const WHATSAPP_SCHEMA_FILES = [
   path.resolve(process.cwd(), 'supabase/migrations/20260310090000_whatsapp_connections.sql'),
   path.resolve(process.cwd(), 'supabase/migrations/20260311113000_whatsapp_messages.sql'),
+  path.resolve(process.cwd(), 'supabase/migrations/20260529173000_whatsapp_message_media.sql'),
 ];
 
 async function sleep(ms: number) {
@@ -38,13 +39,35 @@ function readSchemaSql() {
   return WHATSAPP_SCHEMA_FILES.map((filePath) => fs.readFileSync(filePath, 'utf8')).join('\n\n');
 }
 
-async function missingWhatsAppTables(client: Client) {
-  const result = await client.query<{ connections_exists: boolean; messages_exists: boolean }>(
-    "select to_regclass('public.organization_whatsapp_connections') is not null as connections_exists, to_regclass('public.whatsapp_messages') is not null as messages_exists"
+async function needsWhatsAppProvisioning(client: Client) {
+  const result = await client.query<{
+    connections_exists: boolean;
+    messages_exists: boolean;
+    media_columns_ready: boolean;
+  }>(
+    `
+      select
+        to_regclass('public.organization_whatsapp_connections') is not null as connections_exists,
+        to_regclass('public.whatsapp_messages') is not null as messages_exists,
+        exists (
+          select 1
+          from information_schema.columns
+          where table_schema = 'public'
+            and table_name = 'whatsapp_messages'
+            and column_name = 'message_type'
+        )
+        and exists (
+          select 1
+          from information_schema.columns
+          where table_schema = 'public'
+            and table_name = 'whatsapp_messages'
+            and column_name = 'media_base64'
+        ) as media_columns_ready
+    `
   );
 
   const row = result.rows[0];
-  return !row?.connections_exists || !row?.messages_exists;
+  return !row?.connections_exists || !row?.messages_exists || !row?.media_columns_ready;
 }
 
 async function reloadPostgrestSchema(client: Client) {
@@ -70,7 +93,7 @@ export async function ensureWhatsAppSchema() {
   try {
     await client.connect();
 
-    const needsProvision = await missingWhatsAppTables(client);
+    const needsProvision = await needsWhatsAppProvisioning(client);
     if (!needsProvision) {
       return { ok: true, skipped: false, created: false } as const;
     }

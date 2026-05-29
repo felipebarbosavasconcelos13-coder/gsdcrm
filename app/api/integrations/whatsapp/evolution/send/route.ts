@@ -2,11 +2,20 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { toWhatsAppPhone } from '@/lib/phone';
-import { sendTextWithEvolution, type EvolutionConfig } from '@/lib/integrations/evolution/client';
+import {
+  sendAudioWithEvolution,
+  sendMediaWithEvolution,
+  sendTextWithEvolution,
+  type EvolutionConfig,
+} from '@/lib/integrations/evolution/client';
 
 const BodySchema = z.object({
   phone: z.string().min(3),
-  message: z.string().min(1).max(4000),
+  message: z.string().max(4000).optional().default(''),
+  messageType: z.enum(['text', 'image', 'video', 'audio', 'document']).optional().default('text'),
+  media: z.string().optional(),
+  mimeType: z.string().optional(),
+  fileName: z.string().optional(),
 });
 
 export async function POST(req: Request) {
@@ -45,6 +54,12 @@ export async function POST(req: Request) {
     if (!phone) {
       return NextResponse.json({ error: 'Telefone invalido para WhatsApp.' }, { status: 400 });
     }
+    if (body.messageType === 'text' && !body.message.trim()) {
+      return NextResponse.json({ error: 'Mensagem de texto vazia.' }, { status: 400 });
+    }
+    if (body.messageType !== 'text' && (!body.media || !body.mimeType)) {
+      return NextResponse.json({ error: 'Arquivo ou MIME type ausente para envio de midia.' }, { status: 400 });
+    }
 
     const dbConfig: EvolutionConfig | null =
       connection?.instance_url && connection?.instance_name && connection?.api_key
@@ -55,11 +70,28 @@ export async function POST(req: Request) {
           }
         : null;
 
-    const sent = await sendTextWithEvolution({
-      config: dbConfig,
-      phone,
-      message: body.message,
-    });
+    const sent =
+      body.messageType === 'text'
+        ? await sendTextWithEvolution({
+            config: dbConfig,
+            phone,
+            message: body.message,
+          })
+        : body.messageType === 'audio'
+          ? await sendAudioWithEvolution({
+              config: dbConfig,
+              phone,
+              audio: body.media || '',
+            })
+          : await sendMediaWithEvolution({
+              config: dbConfig,
+              phone,
+              mediatype: body.messageType,
+              mimetype: body.mimeType || 'application/octet-stream',
+              media: body.media || '',
+              fileName: body.fileName || 'arquivo',
+              caption: body.message,
+            });
 
     if (!sent.ok) {
       return NextResponse.json(

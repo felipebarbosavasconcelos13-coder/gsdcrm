@@ -2,15 +2,27 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { toWhatsAppPhone } from '@/lib/phone';
-import { sendTextWithEvolution, type EvolutionConfig } from '@/lib/integrations/evolution/client';
+import {
+  sendAudioWithEvolution,
+  sendMediaWithEvolution,
+  sendTextWithEvolution,
+  type EvolutionConfig,
+} from '@/lib/integrations/evolution/client';
 import { ensureWhatsAppSchema } from '@/lib/integrations/whatsapp/ensureSchema';
 
 export const runtime = 'nodejs';
 
+const MessageTypeSchema = z.enum(['text', 'image', 'video', 'audio', 'document']);
+
 const PostSchema = z.object({
   phone: z.string().min(3),
-  message: z.string().min(1).max(4000),
+  message: z.string().max(4000).optional().default(''),
   contactName: z.string().optional(),
+  messageType: MessageTypeSchema.optional().default('text'),
+  media: z.string().optional(),
+  mimeType: z.string().optional(),
+  fileName: z.string().optional(),
+  fileSize: z.number().int().nonnegative().optional(),
 });
 
 type ChatMessageRow = {
@@ -22,6 +34,16 @@ type ChatMessageRow = {
   provider: string;
   external_message_id: string | null;
   created_at: string;
+  message_type?: string | null;
+  caption?: string | null;
+  media_url?: string | null;
+  media_base64?: string | null;
+  mime_type?: string | null;
+  file_name?: string | null;
+  file_size?: number | null;
+  media_seconds?: number | null;
+  media_width?: number | null;
+  media_height?: number | null;
 };
 
 type ChatMessageWithMetadataRow = ChatMessageRow & {
@@ -87,6 +109,58 @@ async function getOrganizationConnection(supabase: any, organizationId: string) 
   return connection;
 }
 
+function externalMessageIdFromPayload(payload: any) {
+  return (
+    String(
+      payload?.key?.id ??
+        payload?.data?.key?.id ??
+        payload?.message?.key?.id ??
+        ''
+    ).trim() || null
+  );
+}
+
+async function sendWhatsAppMessage(input: {
+  config: EvolutionConfig | null;
+  phoneDigits: string;
+  body: z.infer<typeof PostSchema>;
+}) {
+  const { body, config, phoneDigits } = input;
+  if (body.messageType === 'text') {
+    return sendTextWithEvolution({
+      config,
+      phone: phoneDigits,
+      message: body.message,
+    });
+  }
+
+  if (!body.media || !body.mimeType) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Arquivo ou MIME type ausente para envio de midia.',
+    } as const;
+  }
+
+  if (body.messageType === 'audio') {
+    return sendAudioWithEvolution({
+      config,
+      phone: phoneDigits,
+      audio: body.media,
+    });
+  }
+
+  return sendMediaWithEvolution({
+    config,
+    phone: phoneDigits,
+    mediatype: body.messageType,
+    mimetype: body.mimeType,
+    media: body.media,
+    fileName: body.fileName || `arquivo.${body.mimeType.split('/')[1] || 'bin'}`,
+    caption: body.message,
+  });
+}
+
 export async function GET(req: Request) {
   try {
     const ctx = await getUserOrgContext();
@@ -112,7 +186,7 @@ export async function GET(req: Request) {
 
     const { data, error } = await ctx.supabase
       .from('whatsapp_messages')
-      .select('id,phone,contact_name,direction,message,provider,external_message_id,created_at')
+      .select('id,phone,contact_name,direction,message,provider,external_message_id,created_at,message_type,caption,media_url,media_base64,mime_type,file_name,file_size,media_seconds,media_width,media_height')
       .eq('organization_id', ctx.organizationId)
       .eq('phone', normalizedPhone)
       .order('created_at', { ascending: true })
@@ -130,7 +204,7 @@ export async function GET(req: Request) {
       const phoneDigits = normalizedPhone.replace('+', '');
       const { data: fallbackInbound } = await ctx.supabase
         .from('whatsapp_messages')
-        .select('id,phone,contact_name,direction,message,provider,external_message_id,created_at,metadata')
+        .select('id,phone,contact_name,direction,message,provider,external_message_id,created_at,message_type,caption,media_url,media_base64,mime_type,file_name,file_size,media_seconds,media_width,media_height,metadata')
         .eq('organization_id', ctx.organizationId)
         .eq('direction', 'in')
         .neq('phone', normalizedPhone)
@@ -139,15 +213,9 @@ export async function GET(req: Request) {
 
       const recoveredInbound = ((fallbackInbound ?? []) as ChatMessageWithMetadataRow[])
         .filter((row) => metadataContainsPhone(row.metadata, phoneDigits))
-        .map((row) => ({
-          id: row.id,
+        .map(({ metadata: _metadata, ...row }) => ({
+          ...row,
           phone: normalizedPhone,
-          contact_name: row.contact_name,
-          direction: row.direction,
-          message: row.message,
-          provider: row.provider,
-          external_message_id: row.external_message_id,
-          created_at: row.created_at,
         }));
 
       const byId = new Map<string, ChatMessageRow>();
@@ -182,6 +250,9 @@ export async function POST(req: Request) {
     }
 
     const body = PostSchema.parse(await req.json());
+    if (body.messageType === 'text' && !body.message.trim()) {
+      return NextResponse.json({ error: 'Mensagem de texto vazia.' }, { status: 400 });
+    }
     const phoneDigits = toWhatsAppPhone(body.phone);
     if (!phoneDigits) {
       return NextResponse.json({ error: 'Telefone invalido para WhatsApp.' }, { status: 400 });
@@ -198,11 +269,7 @@ export async function POST(req: Request) {
           }
         : null;
 
-    const sent = await sendTextWithEvolution({
-      config: dbConfig,
-      phone: phoneDigits,
-      message: body.message,
-    });
+    const sent = await sendWhatsAppMessage({ config: dbConfig, phoneDigits, body });
 
     if (!sent.ok) {
       const details = `${sent.error} (status ${sent.status})`;
@@ -217,20 +284,21 @@ export async function POST(req: Request) {
     }
 
     const providerPayload = sent.payload as any;
-    const externalMessageId =
-      String(
-        providerPayload?.key?.id ??
-          providerPayload?.data?.key?.id ??
-          providerPayload?.message?.key?.id ??
-          ''
-      ).trim() || null;
+    const externalMessageId = externalMessageIdFromPayload(providerPayload);
 
     const { error: insertError } = await ctx.supabase.from('whatsapp_messages').insert({
       organization_id: ctx.organizationId,
       phone: normalizedPhone,
       contact_name: body.contactName?.trim() || null,
       direction: 'out',
-      message: body.message,
+      message: body.message || (body.fileName ? `Arquivo enviado: ${body.fileName}` : `Mensagem ${body.messageType} enviada.`),
+      message_type: body.messageType,
+      caption: body.message || null,
+      media_base64: body.media && !/^https?:\/\//i.test(body.media) ? body.media : null,
+      media_url: body.media && /^https?:\/\//i.test(body.media) ? body.media : null,
+      mime_type: body.mimeType ?? null,
+      file_name: body.fileName ?? null,
+      file_size: body.fileSize ?? null,
       provider: 'evolution',
       external_message_id: externalMessageId,
       metadata: providerPayload ?? {},

@@ -18,3 +18,12 @@ Aplicar as correcoes identificadas na analise profunda do GenialCRM mantendo ras
 - Preferir mudancas pequenas e verificaveis.
 - Para RLS, adicionar uma migration nova em vez de editar somente o schema historico.
 - Para secrets, retornar apenas indicadores `hasKey` e permitir escrita/substituicao via payload.
+
+## Extensao WhatsApp Multimidia
+
+- [x] Estender `whatsapp_messages` para armazenar tipo de mensagem, mime type, nome de arquivo, URL/base64 de mídia e legenda.
+- [x] Extrair metadados de imagem, video, audio, documento, sticker e contato no webhook Evolution.
+- [x] Adicionar envio de midia via Evolution API (`sendMedia` e audio) mantendo envio de texto.
+- [x] Atualizar `/api/integrations/whatsapp/evolution/messages` para aceitar e retornar mensagens multimidia.
+- [x] Atualizar `WhatsAppChatPanel` com upload/anexo, preview e renderizacao de audio, imagem, video e documento.
+- [x] Validar com lint, typecheck, testes e build.

@@ -11,6 +11,26 @@ export type EvolutionSendTextInput = {
   delay?: number;
 };
 
+export type EvolutionMediaType = 'image' | 'video' | 'document';
+
+export type EvolutionSendMediaInput = {
+  config?: EvolutionConfig | null;
+  phone: string;
+  mediatype: EvolutionMediaType;
+  mimetype: string;
+  media: string;
+  fileName: string;
+  caption?: string;
+  delay?: number;
+};
+
+export type EvolutionSendAudioInput = {
+  config?: EvolutionConfig | null;
+  phone: string;
+  audio: string;
+  delay?: number;
+};
+
 export type EvolutionConnectionCheckResult = {
   ok: boolean;
   status: number;
@@ -372,6 +392,124 @@ export async function sendTextWithEvolution(input: EvolutionSendTextInput) {
         number: input.phone,
         delay: input.delay ?? 0,
         text: input.message,
+      }),
+      cache: 'no-store',
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Falha ao acessar Evolution API.';
+    return {
+      ok: false,
+      status: 502,
+      error: `Falha ao acessar Evolution API: ${message}`,
+    } as const;
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: extractEvolutionError(payload as any, response.status),
+      payload,
+    } as const;
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    payload,
+  } as const;
+}
+
+export async function sendMediaWithEvolution(input: EvolutionSendMediaInput) {
+  const config = normalizeEvolutionConfig(input.config ?? getEvolutionConfig());
+  if (!config) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'Evolution API nao configurada no servidor.',
+    } as const;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/message/sendMedia/${encodeURIComponent(config.instance)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: config.apiKey,
+      },
+      body: JSON.stringify({
+        number: input.phone,
+        mediatype: input.mediatype,
+        mimetype: input.mimetype,
+        caption: input.caption ?? '',
+        media: input.media,
+        fileName: input.fileName,
+        delay: input.delay ?? 0,
+      }),
+      cache: 'no-store',
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Falha ao acessar Evolution API.';
+    return {
+      ok: false,
+      status: 502,
+      error: `Falha ao acessar Evolution API: ${message}`,
+    } as const;
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: extractEvolutionError(payload as any, response.status),
+      payload,
+    } as const;
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    payload,
+  } as const;
+}
+
+export async function sendAudioWithEvolution(input: EvolutionSendAudioInput) {
+  const config = normalizeEvolutionConfig(input.config ?? getEvolutionConfig());
+  if (!config) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'Evolution API nao configurada no servidor.',
+    } as const;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/message/sendWhatsAppAudio/${encodeURIComponent(config.instance)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: config.apiKey,
+      },
+      body: JSON.stringify({
+        number: input.phone,
+        audio: input.audio,
+        delay: input.delay ?? 0,
       }),
       cache: 'no-store',
     });
