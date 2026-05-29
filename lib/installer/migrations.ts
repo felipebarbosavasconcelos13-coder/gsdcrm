@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Client } from 'pg';
 
-const SCHEMA_PATH = path.resolve(process.cwd(), 'supabase/migrations/20251201000000_schema_init.sql');
+const MIGRATIONS_DIR = path.resolve(process.cwd(), 'supabase/migrations');
 
 function needsSsl(connectionString: string) {
   return !/sslmode=disable/i.test(connectionString);
@@ -105,7 +105,12 @@ async function waitForStorageReady(client: Client, opts?: { timeoutMs?: number; 
  * Função pública `runSchemaMigration` do projeto.
  */
 export async function runSchemaMigration(dbUrl: string) {
-  const schemaSql = fs.readFileSync(SCHEMA_PATH, 'utf8');
+  const schemaSql = fs
+    .readdirSync(MIGRATIONS_DIR)
+    .filter((fileName) => fileName.endsWith('.sql'))
+    .sort((a, b) => a.localeCompare(b))
+    .map((fileName) => fs.readFileSync(path.join(MIGRATIONS_DIR, fileName), 'utf8'))
+    .join('\n\n');
   const normalizedDbUrl = stripSslModeParam(dbUrl);
 
   const createClient = () =>

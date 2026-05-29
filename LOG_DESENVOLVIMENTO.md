@@ -29,3 +29,5 @@
 - Fallback de busca de mensagens por metadata agora preserva tambem os campos multimidia recuperados.
 - Renderizacao de imagem/sticker no chat ajustada para `next/image` sem otimizacao remota, evitando warning de lint com data URLs.
 - Validacoes apos WhatsApp multimidia: `npm run lint`, `npm run typecheck`, `npm run test:run` (101 testes aprovados, 5 pulados) e `npm run build` passaram.
+- Corrigido instalador: `runSchemaMigration` agora aplica todos os arquivos `supabase/migrations/*.sql` em ordem, garantindo que novas instalacoes recebam tambem indices, RLS, tabelas WhatsApp e colunas multimidia.
+- Validacoes apos ajuste do instalador: `npm run lint`, `npm run typecheck` e `npm run test:run` (101 testes aprovados, 5 pulados) passaram.

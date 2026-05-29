@@ -27,3 +27,4 @@ Aplicar as correcoes identificadas na analise profunda do GenialCRM mantendo ras
 - [x] Atualizar `/api/integrations/whatsapp/evolution/messages` para aceitar e retornar mensagens multimidia.
 - [x] Atualizar `WhatsAppChatPanel` com upload/anexo, preview e renderizacao de audio, imagem, video e documento.
 - [x] Validar com lint, typecheck, testes e build.
+- [x] Ajustar instalador para aplicar todas as migrations, incluindo WhatsApp multimidia, em novas instalacoes.
