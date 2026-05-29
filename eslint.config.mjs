@@ -16,6 +16,7 @@ const eslintConfig = defineConfig([
 
     // Repo-specific ignores (generated/auxiliary code)
     "testsprite_tests/**",
+    "scratch/**",
     "tmp/**",
     "**/*.bak",
 

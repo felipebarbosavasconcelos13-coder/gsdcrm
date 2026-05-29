@@ -198,7 +198,8 @@ export async function GET() {
     connectionName: String(row.connection_name ?? ''),
     instanceUrl: String(row.instance_url ?? ''),
     instanceName: String(row.instance_name ?? ''),
-    apiKey: String(row.api_key ?? ''),
+    apiKey: '',
+    hasApiKey: Boolean(row.api_key),
     typingEnabled: Boolean(row.typing_enabled ?? false),
     typingIntervalMinSeconds: Number(row.typing_interval_min_seconds ?? 0),
     typingIntervalMaxSeconds: Number(row.typing_interval_max_seconds ?? 2),
@@ -241,13 +242,13 @@ export async function POST(req: Request) {
   const max = body.typingIntervalMaxSeconds ?? 2;
   if (max < min) return json({ error: 'Intervalo invalido: max deve ser maior ou igual ao min.' }, 400);
 
+  const apiKeyUpdate = body.apiKey === undefined ? undefined : toNullable(body.apiKey);
   const payload: Record<string, unknown> = {
     organization_id: ctx.organizationId,
     provider: 'evolution',
     connection_name: body.connectionName,
     instance_url: toNullable(normalizedAuth.instanceUrl),
     instance_name: toNullable(normalizedAuth.instanceName),
-    api_key: toNullable(body.apiKey),
     typing_enabled: body.typingEnabled ?? false,
     typing_interval_min_seconds: min,
     typing_interval_max_seconds: max,
@@ -259,10 +260,13 @@ export async function POST(req: Request) {
     active: body.active ?? true,
     updated_at: new Date().toISOString(),
   };
+  if (apiKeyUpdate !== undefined) {
+    payload.api_key = apiKeyUpdate;
+  }
 
   const { data: existing } = await ctx.supabase
     .from('organization_whatsapp_connections')
-    .select('id')
+    .select('id,api_key')
     .eq('organization_id', ctx.organizationId)
     .eq('provider', 'evolution')
     .maybeSingle();
@@ -292,12 +296,17 @@ export async function POST(req: Request) {
 
   if (saveError) return json({ error: saveError.message }, 500);
 
+  const effectiveApiKey =
+    apiKeyUpdate === undefined
+      ? String((existing as any)?.api_key ?? '')
+      : String(apiKeyUpdate ?? '');
+
   const webhook = await syncEvolutionWebhook({
     req,
     config: toEvolutionConfig({
       instanceUrl: normalizedAuth.instanceUrl,
       instanceName: normalizedAuth.instanceName,
-      apiKey: body.apiKey,
+      apiKey: effectiveApiKey,
     }),
     enabled: body.active ?? true,
     connectionId: savedId ?? undefined,

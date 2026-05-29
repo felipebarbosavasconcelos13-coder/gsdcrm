@@ -149,22 +149,22 @@ export const AIConfigSection: React.FC = () => {
     const [localApiKey, setLocalApiKey] = useState(aiApiKey);
     const [isValidating, setIsValidating] = useState(false);
     const [validationStatus, setValidationStatus] = useState<'idle' | 'valid' | 'invalid'>(
-        aiApiKey ? 'valid' : 'idle'
+        aiApiKey || aiKeyConfigured ? 'valid' : 'idle'
     );
     const [validationError, setValidationError] = useState<string | null>(null);
     // UX: mostrar LGPD expandido apenas quando ainda NÃO há key salva (primeira configuração).
     // Depois que a key existe, manter colapsado por padrão para não “inflar” a tela.
-    const [lgpdExpanded, setLgpdExpanded] = useState(!aiApiKey);
+    const [lgpdExpanded, setLgpdExpanded] = useState(!aiKeyConfigured);
 
     // Sync local state when context changes (ex: carregamento inicial)
     useEffect(() => {
         setLocalApiKey(aiApiKey);
-        if (aiApiKey) {
-            setValidationStatus('valid'); // Assume válida se já estava salva
+        if (aiApiKey || aiKeyConfigured) {
+            setValidationStatus('valid');
         }
         // Se já existe key salva, manter LGPD colapsado por padrão.
-        setLgpdExpanded(!aiApiKey);
-    }, [aiApiKey]);
+        setLgpdExpanded(!aiKeyConfigured);
+    }, [aiApiKey, aiKeyConfigured]);
 
     // Reset validation apenas quando usuário EDITA a key (não no carregamento)
     const handleKeyChange = (newKey: string) => {
@@ -223,7 +223,7 @@ export const AIConfigSection: React.FC = () => {
         }
     };
 
-    const hasUnsavedChanges = localApiKey !== aiApiKey;
+    const hasUnsavedChanges = localApiKey !== aiApiKey && localApiKey.trim().length > 0;
 
     // Preços exibidos: input / output (por 1M tokens), apenas como referência na UI.
     // Fontes oficiais (podem mudar):
@@ -536,7 +536,7 @@ export const AIConfigSection: React.FC = () => {
                                 type="password"
                                 value={localApiKey}
                                 onChange={(e) => handleKeyChange(e.target.value)}
-                                placeholder={`Cole sua chave ${aiProvider === 'google' ? 'AIza...' : 'sk-...'}`}
+                                placeholder={aiKeyConfigured ? 'Chave configurada - digite uma nova para substituir' : `Cole sua chave ${aiProvider === 'google' ? 'AIza...' : 'sk-...'}`}
                                 className={`w-full bg-slate-50 dark:bg-slate-800 border rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all font-mono ${validationStatus === 'invalid'
                                         ? 'border-red-300 dark:border-red-500/50'
                                         : validationStatus === 'valid'
@@ -551,7 +551,7 @@ export const AIConfigSection: React.FC = () => {
                                     <CheckCircle size={16} className="text-green-500" />
                                 ) : validationStatus === 'invalid' ? (
                                     <AlertCircle size={16} className="text-red-500" />
-                                ) : localApiKey ? (
+                                ) : localApiKey || aiKeyConfigured ? (
                                     <AlertCircle size={16} className="text-amber-500" />
                                 ) : null}
                             </div>
@@ -576,7 +576,7 @@ export const AIConfigSection: React.FC = () => {
                                 </>
                             )}
                         </button>
-                        {aiApiKey && (
+                        {aiKeyConfigured && (
                             <button
                                 onClick={handleRemoveApiKey}
                                 disabled={isValidating}
@@ -651,27 +651,27 @@ export const AIConfigSection: React.FC = () => {
                 </div>
 
                 {/* Status Banner - use localApiKey para refletir estado atual após salvar */}
-                <div className={`rounded-lg p-3 flex items-start gap-3 ${validationStatus === 'valid' && localApiKey
+                <div className={`rounded-lg p-3 flex items-start gap-3 ${validationStatus === 'valid' && (localApiKey || aiKeyConfigured)
                         ? 'bg-green-50 dark:bg-green-900/10 text-green-800 dark:text-green-200'
                         : validationStatus === 'invalid'
                             ? 'bg-red-50 dark:bg-red-900/10 text-red-800 dark:text-red-200'
                             : 'bg-amber-50 dark:bg-amber-900/10 text-amber-800 dark:text-amber-200'
                     }`}>
-                    {validationStatus === 'valid' && localApiKey ? (
+                    {validationStatus === 'valid' && (localApiKey || aiKeyConfigured) ? (
                         <CheckCircle className="shrink-0 mt-0.5" size={18} />
                     ) : (
                         <AlertCircle className="shrink-0 mt-0.5" size={18} />
                     )}
                     <div className="text-sm">
                         <p className="font-semibold">
-                            {validationStatus === 'valid' && localApiKey
+                            {validationStatus === 'valid' && (localApiKey || aiKeyConfigured)
                                 ? 'Pronto para uso'
                                 : validationStatus === 'invalid'
                                     ? 'Chave Inválida'
                                     : 'Configuração Pendente'}
                         </p>
                         <p className="opacity-90 mt-1">
-                            {validationStatus === 'valid' && localApiKey
+                            {validationStatus === 'valid' && (localApiKey || aiKeyConfigured)
                                 ? `O sistema está configurado para usar o ${AI_PROVIDERS.find(p => p.id === aiProvider)?.name} (${aiModel}).`
                                 : validationStatus === 'invalid'
                                     ? 'Verifique sua chave de API e tente novamente.'

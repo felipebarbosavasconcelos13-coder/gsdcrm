@@ -28,6 +28,7 @@ type EvolutionConnection = {
   instanceUrl: string;
   instanceName: string;
   apiKey: string;
+  hasApiKey?: boolean;
   typingEnabled: boolean;
   typingIntervalMinSeconds: number;
   typingIntervalMaxSeconds: number;
@@ -46,6 +47,7 @@ const DEFAULT_CONFIG: EvolutionConnection = {
   instanceUrl: '',
   instanceName: '',
   apiKey: '',
+  hasApiKey: false,
   typingEnabled: false,
   typingIntervalMinSeconds: 0,
   typingIntervalMaxSeconds: 2,
@@ -131,7 +133,7 @@ export const WhatsAppChannelsSection: React.FC = () => {
   const openEditModal = (connection: EvolutionConnection) => {
     setActiveTab('auth');
     setShowApiKey(false);
-    setConfig(connection);
+    setConfig({ ...connection, apiKey: '' });
     setIsOpen(true);
   };
 
@@ -143,7 +145,7 @@ export const WhatsAppChannelsSection: React.FC = () => {
         connectionName: config.connectionName,
         instanceUrl: config.instanceUrl,
         instanceName: config.instanceName,
-        apiKey: config.apiKey,
+        ...(!config.id || config.apiKey.trim() ? { apiKey: config.apiKey } : {}),
         typingEnabled: config.typingEnabled,
         typingIntervalMinSeconds: config.typingIntervalMinSeconds,
         typingIntervalMaxSeconds: config.typingIntervalMaxSeconds,
@@ -430,13 +432,17 @@ export const WhatsAppChannelsSection: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm md:text-base font-semibold text-slate-700 dark:text-slate-300 mb-1">Chave de API</label>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Acesse o Evolution Manager para obter a chave de API.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                      {config.hasApiKey
+                        ? 'Chave ja configurada. Deixe em branco para manter ou digite uma nova para substituir.'
+                        : 'Acesse o Evolution Manager para obter a chave de API.'}
+                    </p>
                     <div className="relative">
                       <input
                         value={config.apiKey}
                         onChange={(e) => setConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
                         type={showApiKey ? 'text' : 'password'}
-                        placeholder="Token de seguranca da Evolution API"
+                        placeholder={config.hasApiKey ? 'Chave configurada - digite para substituir' : 'Token de seguranca da Evolution API'}
                         className={cn(inputClass, 'pr-10')}
                       />
                       <button

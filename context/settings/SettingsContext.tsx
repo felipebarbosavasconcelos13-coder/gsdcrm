@@ -421,14 +421,17 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
         case 'google':
           await updateOrgAISettings({ aiGoogleKey: key });
           setAiGoogleKeyState(key);
+          setAiHasGoogleKey(Boolean(key.trim()));
           break;
         case 'openai':
           await updateOrgAISettings({ aiOpenaiKey: key });
           setAiOpenaiKeyState(key);
+          setAiHasOpenaiKey(Boolean(key.trim()));
           break;
         case 'anthropic':
           await updateOrgAISettings({ aiAnthropicKey: key });
           setAiAnthropicKeyState(key);
+          setAiHasAnthropicKey(Boolean(key.trim()));
           break;
       }
     },
