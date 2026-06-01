@@ -1,44 +1,46 @@
-# Plano de Implementação - Correção de Ingestão de Mensagens do WhatsApp de Novos Leads
+# Plano de Implementação - Correção Definitiva de Correlação de Novos Leads do WhatsApp
 
 ## Objetivo
-Corrigir o problema no CRM onde mensagens recebidas via WhatsApp de novos leads (números não cadastrados e sem histórico de saída) não aparecem no sistema.
+Corrigir o bug crítico onde mensagens recebidas de novos leads reais são indevidamente associadas ao número de telefone do próprio usuário/empresa (ou outros números já existentes no histórico) devido a um erro de acumulação na pontuação de recência de mensagens outbound.
 
 ---
 
-## Análise do Problema
-O fluxo de recebimento de mensagens do WhatsApp ocorre no webhook da Evolution API localizado em `app/api/webhooks/evolution/route.ts`. Ao receber uma mensagem, o webhook realiza dois passos principais:
-1. **Persistência da mensagem** (`persistInboundMessage`): Salva a mensagem no histórico (`whatsapp_messages`).
-2. **Encaminhamento para o lead ingester** (`webhook-in`): Faz uma chamada HTTP POST para a Supabase Edge Function `webhook-in`, que é responsável por criar o contato em `contacts` e o negócio em `deals` (exibindo-o no Kanban).
-
-### Bugs Identificados:
-1. **Falta de Resolução Dinâmica da Fonte Inbound**: Se as variáveis de ambiente `EVOLUTION_WEBHOOK_SOURCE_ID` e `EVOLUTION_WEBHOOK_SOURCE_SECRET` não estiverem configuradas no Next.js (o que ocorre frequentemente), o webhook desiste de encaminhar para a função `webhook-in`.
-   - *Solução*: Se as variáveis estiverem ausentes, buscaremos uma fonte ativa diretamente no banco de dados (`integration_inbound_sources`) usando o `organization_id` resolvido.
-2. **Sobrescrita Indevida de Números de Novos Leads**: No bloco de correlação de `persistInboundMessage`, se o número é desconhecido (`!selectedIsKnown`), o código tenta associá-lo a mensagens de saída recentes. Se houver apenas uma conversa recente ativa de saída nos últimos 20 registros, o número do novo lead é **sobrescrito** pelo número desse outro cliente.
-   - *Solução*: Restringir a sobrescrita "frouxa" (baseada no último histórico de saída) apenas para quando o identificador recebido for de fato um ID opaco/LID da Meta (`isLikelyOpaqueWhatsAppId(selectedPhone) === true`). Se for um número de telefone válido, mantemos o número original do lead para que um novo contato seja criado.
+## Diagnóstico do Bug
+No arquivo `app/api/webhooks/evolution/route.ts`, na função `persistInboundMessage`, temos a seguinte condição:
+```typescript
+if (isLikelyOpaqueWhatsAppId(selectedPhone) || !selectedIsKnown) {
+```
+Como novos leads são desconhecidos pelo CRM (`selectedIsKnown` é `false`), o webhook sempre entrava nessa condição.
+Dentro do bloco de correlação, para cada mensagem outbound no histórico, a pontuação do telefone correspondente era incrementada por um fator de recência (`recencyBoost` de até 120 pontos por mensagem). 
+Se o CRM possuísse várias mensagens recentes enviadas para um número (ex: o número do próprio usuário `+5531994775113`), esse número acumulava uma pontuação gigante (ex: >500 pontos), ultrapassando facilmente o limite de 150 pontos exigido para a sobrescrita:
+```typescript
+if (best?.[0] && best[1] >= 150) {
+  selectedPhone = best[0];
+}
+```
+Isso fazia com que **qualquer novo lead real** tivesse seu telefone sobrescrito pelo telefone do usuário! Consequentemente, o CRM atualizava o nome do usuário existente para o nome do lead (ex: "Bia Souza", "Vera"), mas mantinha o número do usuário no contato, e o novo lead nunca era de fato criado.
 
 ---
 
-## Proposta de Alterações
+## Solução Proposta
+Restringir o bloco de fallback de correlação **exclusivamente** para quando o número for um identificador opaco/LID da Meta (`isLikelyOpaqueWhatsAppId(selectedPhone) === true`).
 
-### `app/api/webhooks/evolution/route.ts`
+Se o número recebido for um número de telefone válido e real (ex: `+5531988887777`), o CRM **nunca** deve tentar correlacioná-lo ou alterá-lo. O número do lead deve ser mantido como o original do remetente, garantindo a criação correta de um novo contato e negócio.
 
-- **Ajuste na Correlação de Telefone (`persistInboundMessage`)**:
-  - Alterar o bloco de fallback para que a pesquisa de `veryRecentOut` seja executada **apenas** se `isLikelyOpaqueWhatsAppId(selectedPhone)` for verdadeiro.
-  
-- **Resolução Automática da Fonte Inbound (`POST`)**:
-  - Obter o `organizationId` na rota `POST` utilizando `resolveOrganizationId` com o `instanceName` e `connectionId`.
-  - Se `sourceId` ou `sourceSecret` estiverem ausentes nas variáveis de ambiente ou parâmetros da URL, fazer uma consulta em `integration_inbound_sources` por uma fonte ativa da organização (`active = true`) e usar seus dados.
+### Alteração em `app/api/webhooks/evolution/route.ts`:
+```typescript
+// Alterar a condição de entrada do bloco de correlação:
+if (isLikelyOpaqueWhatsAppId(selectedPhone)) {
+```
 
 ---
 
 ## Plano de Verificação
 
-### Testes Manuais
-1. Validar que o comportamento do webhook continua ignorando mensagens enviadas por si mesmo (`fromMe`).
-2. Simular o recebimento de uma mensagem de um novo número de telefone válido:
-   - Garantir que o número do lead **não** seja sobrescrito pelo histórico de outras conversas.
-   - Verificar que a fonte de entrada inbound é resolvida a partir do banco de dados.
-   - Confirmar o encaminhamento correto para `webhook-in`.
-3. Rodar testes de verificação do codebase:
-   - `npm run lint`
-   - `npm run typecheck`
+### Testes Automatizados
+- Rodar a suíte completa de testes (`npm run test:run`) para garantir que os testes de regressão não foram afetados.
+- Rodar o lint (`npm run lint`) e o typecheck (`npm run typecheck`).
+- Rodar o build (`npm run build`).
+
+### Teste Manual
+- Simular o recebimento de mensagens de novos números reais de leads e verificar se eles são criados de forma independente e com o telefone correto no CRM.

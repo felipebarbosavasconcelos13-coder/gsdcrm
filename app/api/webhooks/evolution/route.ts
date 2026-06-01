@@ -607,9 +607,9 @@ async function persistInboundMessage(input: {
     const selectedIsKnown =
       (selectedContactRows ?? []).length > 0 || (selectedOutRows ?? []).length > 0;
 
-    // Fallback para payloads LID/IDs opacos OU telefones desconhecidos:
+    // Fallback APENAS para payloads LID/IDs opacos da Meta:
     // tenta correlacionar com mensagens outbound recentes.
-    if (isLikelyOpaqueWhatsAppId(selectedPhone) || !selectedIsKnown) {
+    if (isLikelyOpaqueWhatsAppId(selectedPhone)) {
       const ids = (input.rawIdentifiers ?? []).filter(Boolean);
       const scores = new Map<string, number>();
 
