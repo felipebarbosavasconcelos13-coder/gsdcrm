@@ -17,6 +17,34 @@ import { Contact, CRMCompany, OrganizationId, PaginationState, PaginatedResponse
 import { sanitizeUUID, sanitizeText, sanitizeNumber } from './utils';
 import { normalizePhoneE164 } from '@/lib/phone';
 
+// =============================================================================
+// Organization inference (client-side, RLS-safe)
+// =============================================================================
+let cachedOrgId: string | null = null;
+let cachedOrgUserId: string | null = null;
+
+async function getCurrentOrganizationId(): Promise<string | null> {
+  if (!supabase) return null;
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  if (cachedOrgUserId === user.id && cachedOrgId) return cachedOrgId;
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (error) return null;
+
+  const orgId = sanitizeUUID((profile as any)?.organization_id);
+  cachedOrgUserId = user.id;
+  cachedOrgId = orgId;
+  return orgId;
+}
+
 // ============================================
 // CONTACTS SERVICE
 // ============================================
@@ -398,8 +426,14 @@ export const contactsService = {
       if (!supabase) {
         return { data: null, error: new Error('Supabase não configurado') };
       }
+      const organizationId = sanitizeUUID(contact.organizationId) || (await getCurrentOrganizationId());
+      if (!organizationId) {
+        return { data: null, error: new Error('Organizacao do usuario nao encontrada.') };
+      }
+
       const phoneE164 = normalizePhoneE164(contact.phone);
       const insertData = {
+        organization_id: organizationId,
         name: contact.name,
         email: sanitizeText(contact.email),
         phone: sanitizeText(phoneE164),
@@ -629,7 +663,13 @@ export const companiesService = {
       if (!supabase) {
         return { data: null, error: new Error('Supabase não configurado') };
       }
+      const organizationId = sanitizeUUID(company.organizationId) || (await getCurrentOrganizationId());
+      if (!organizationId) {
+        return { data: null, error: new Error('Organizacao do usuario nao encontrada.') };
+      }
+
       const insertData = {
+        organization_id: organizationId,
         name: company.name,
         industry: sanitizeText(company.industry),
         website: sanitizeText(company.website),

@@ -28,3 +28,11 @@ Aplicar as correcoes identificadas na analise profunda do GenialCRM mantendo ras
 - [x] Atualizar `WhatsAppChatPanel` com upload/anexo, preview e renderizacao de audio, imagem, video e documento.
 - [x] Validar com lint, typecheck, testes e build.
 - [x] Ajustar instalador para aplicar todas as migrations, incluindo WhatsApp multimidia, em novas instalacoes.
+
+## Correcao Criacao de Leads
+
+- [x] Verificar banco Supabase usado pelo deploy `gsdcrm`.
+- [x] Confirmar que o Supabase MCP da sessao apontava para outro projeto, nao para o CRM.
+- [x] Diagnosticar bloqueio de criacao: `contacts` exige `organization_id` por RLS e o insert manual nao enviava esse campo.
+- [x] Ajustar criacao de contatos/leads e empresas para enviar `organization_id` do usuario autenticado.
+- [x] Validar lint, typecheck, testes e build.

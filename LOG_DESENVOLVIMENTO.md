@@ -31,3 +31,12 @@
 - Validacoes apos WhatsApp multimidia: `npm run lint`, `npm run typecheck`, `npm run test:run` (101 testes aprovados, 5 pulados) e `npm run build` passaram.
 - Corrigido instalador: `runSchemaMigration` agora aplica todos os arquivos `supabase/migrations/*.sql` em ordem, garantindo que novas instalacoes recebam tambem indices, RLS, tabelas WhatsApp e colunas multimidia.
 - Validacoes apos ajuste do instalador: `npm run lint`, `npm run typecheck` e `npm run test:run` (101 testes aprovados, 5 pulados) passaram.
+
+## 2026-06-01 - Correcao de criacao de leads
+
+- Investigado relato de lead criado que nao apareceu no CRM.
+- Confirmado que o Supabase MCP da sessao estava apontando para outro projeto (`lnrwvkq...`), enquanto o deploy Vercel `gsdcrm` usa `wibiwaxgkpsvdoacxtqm.supabase.co`.
+- Consultado banco correto via `SUPABASE_DB_URL` da Vercel: `contacts` e `deals` estavam vazios e nao havia eventos em `webhook_events_in`.
+- Diagnostico: criacao manual de lead/contato dependia de trigger inexistente para preencher `organization_id`; com RLS multi-tenant ativo, inserts sem `organization_id` sao bloqueados.
+- Corrigido `contactsService.create` e `companiesService.create` para resolver a organizacao do usuario autenticado via `profiles` e enviar `organization_id` no insert.
+- Validacoes apos correcao: `npm run lint`, `npm run typecheck`, `npm run test:run` (106 testes aprovados) e `npm run build` passaram.
