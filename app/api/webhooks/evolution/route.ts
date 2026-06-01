@@ -1,4 +1,4 @@
-﻿import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { toWhatsAppPhone } from '@/lib/phone';
 import { createStaticAdminClient } from '@/lib/supabase/staticAdminClient';
 
@@ -659,7 +659,7 @@ async function persistInboundMessage(input: {
       const best = Array.from(scores.entries()).sort((a, b) => b[1] - a[1])[0];
       if (best?.[0] && best[1] >= 150) {
         selectedPhone = best[0];
-      } else {
+      } else if (isLikelyOpaqueWhatsAppId(selectedPhone)) {
         const { data: veryRecentOut } = await admin
           .from('whatsapp_messages')
           .select('phone,created_at')
@@ -717,11 +717,11 @@ export async function POST(req: Request) {
   try {
     const url = new URL(req.url);
     const token = url.searchParams.get('token') ?? '';
-    const sourceId = url.searchParams.get('sourceId') ?? process.env.EVOLUTION_WEBHOOK_SOURCE_ID ?? '';
+    let sourceId = url.searchParams.get('sourceId') ?? process.env.EVOLUTION_WEBHOOK_SOURCE_ID ?? '';
     const connectionId = url.searchParams.get('connectionId') ?? '';
 
     const expectedToken = process.env.EVOLUTION_WEBHOOK_TOKEN ?? '';
-    const sourceSecret = process.env.EVOLUTION_WEBHOOK_SOURCE_SECRET ?? '';
+    let sourceSecret = process.env.EVOLUTION_WEBHOOK_SOURCE_SECRET ?? '';
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 
     if (expectedToken && token !== expectedToken) {
@@ -764,10 +764,30 @@ export async function POST(req: Request) {
     const pushName = String(data?.pushName ?? data?.messages?.[0]?.pushName ?? '').trim();
     const externalEventId = String(key?.id ?? data?.id ?? `${Date.now()}-${phoneResolution.primary}`).trim();
 
+    const instanceName = pickInstanceName(raw);
+    const admin = createStaticAdminClient();
+    const organizationId = await resolveOrganizationId(admin, instanceName, connectionId);
+
+    if ((!sourceId || !sourceSecret) && organizationId) {
+      const { data: inboundSource } = await admin
+        .from('integration_inbound_sources')
+        .select('id, secret')
+        .eq('organization_id', organizationId)
+        .eq('active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (inboundSource) {
+        sourceId = inboundSource.id;
+        sourceSecret = inboundSource.secret;
+      }
+    }
+
     const persistedPhone =
       (await persistInboundMessage({
         connectionId,
-        instanceName: pickInstanceName(raw),
+        instanceName,
         phone: `+${phoneResolution.primary}`,
         phoneCandidates: phoneResolution.candidates,
         ownerPhoneCandidates: phoneResolution.ownerCandidates,

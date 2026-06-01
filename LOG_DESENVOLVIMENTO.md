@@ -64,3 +64,15 @@
   - Schema de midia ja aplicado pelo instalador: `runSchemaMigration` aplica todos os `supabase/migrations/*.sql` (inclui `20260529173000_whatsapp_message_media.sql`); `ensureWhatsAppSchema` tambem inclui o arquivo de midia como fallback runtime.
   - Recepcao de midia toca por padrao: ao salvar/alternar uma conexao Evolution (`config` POST/PATCH), `syncEvolutionWebhook` registra o webhook com `webhookBase64: true`, fazendo a midia recebida chegar em base64.
 - Validacao final completa apos as correcoes de midia: `npm run lint`, `npm run typecheck`, `npm run test:run` (106 testes aprovados) e `npm run build` passaram.
+
+## 2026-06-01 - Correcao de leads do WhatsApp
+
+- Investigado relato de que mensagens recebidas via WhatsApp de novos leads não cadastrados não apareciam no CRM.
+- Diagnostico:
+  1. A rota de webhook `/api/webhooks/evolution` não encaminhava mensagens para a Edge Function `webhook-in` caso as variáveis de ambiente `EVOLUTION_WEBHOOK_SOURCE_ID` e `EVOLUTION_WEBHOOK_SOURCE_SECRET` não estivessem estaticamente configuradas no Next.js (comportamento padrão local).
+  2. No helper `persistInboundMessage`, quando o telefone era desconhecido (`!selectedIsKnown`), a heurística de correlação frouxa sobrescrevia o telefone do lead válido pelo único telefone de mensagens outbound recentes (`veryRecentOut`), mesclando a conversa indevidamente e impedindo a criação do novo lead.
+- Corrigida rota `POST` do webhook da Evolution (`app/api/webhooks/evolution/route.ts`):
+  - Adicionada resolução dinâmica da fonte inbound (`integration_inbound_sources`) no banco de dados com base na organização ativa conectada, caso os segredos da fonte não estejam definidos no ambiente do Next.js.
+  - Ajustada a heurística de fallback no `persistInboundMessage` para que ela seja acionada **apenas** quando o telefone recebido é um ID opaco/LID da Meta (`isLikelyOpaqueWhatsAppId`). Telefones reais e válidos agora mantêm seu número original, permitindo a ingestão correta como novo lead.
+- Validacoes de estabilidade executadas e aprovadas com sucesso: `npm run lint` (zero warnings), `npm run typecheck` (sucesso), `npm run test:run` (106 testes aprovados) e `npm run build` (sucesso completo do bundle Next.js).
+
