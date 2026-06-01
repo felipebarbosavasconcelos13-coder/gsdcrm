@@ -37,3 +37,10 @@ Aplicar as correcoes identificadas na analise profunda do GenialCRM mantendo ras
 - [x] Ajustar criacao de contatos/leads e empresas para enviar `organization_id` do usuario autenticado.
 - [x] Validar lint, typecheck, testes e build.
 - [x] Adicionar migration do instalador para preencher `organization_id` automaticamente em inserts de contatos, empresas e leads.
+
+## Correcao Audio WhatsApp
+
+- [x] Diagnosticar audio recebido com player `0:00`: historico tinha apenas URL `.enc` criptografada da CDN do WhatsApp, sem base64 tocavel.
+- [x] Adicionar busca de base64 via Evolution API quando uma midia do historico estiver sem `media_base64`.
+- [x] Adicionar botao de gravacao de audio no chat com preview e envio como mensagem de audio.
+- [x] Validar lint, typecheck, testes e build.

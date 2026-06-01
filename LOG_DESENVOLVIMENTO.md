@@ -42,3 +42,13 @@
 - Validacoes apos correcao: `npm run lint`, `npm run typecheck`, `npm run test:run` (106 testes aprovados) e `npm run build` passaram.
 - Adicionada migration `20260601162000_default_org_on_lead_inserts.sql` para o instalador criar trigger defensivo que preenche `organization_id` em `contacts`, `crm_companies` e `leads`.
 - Validacoes apos migration defensiva do instalador: `npm run lint`, `npm run typecheck`, `npm run test:run` (106 testes aprovados) e `npm run build` passaram.
+
+## 2026-06-01 - Audio WhatsApp
+
+- Investigado audio recebido sem reproducao no chat: registros recentes em `whatsapp_messages` tinham `message_type=audio`, `mime_type=audio/ogg; codecs=opus`, `media_seconds=3`, mas `media_base64` vazio e `media_url` apontando para arquivo `.enc` da CDN do WhatsApp.
+- Cliente Evolution ganhou `getMediaBase64FromEvolution` usando `/chat/getBase64FromMediaMessage/{instance}` para baixar midias em base64 quando o webhook nao entrega `webhookBase64`.
+- Rota `/api/integrations/whatsapp/evolution/messages` agora hidrata midias sem base64 ao carregar o historico, salva o base64 retornado e remove `metadata` antes de responder ao frontend.
+- `WhatsAppChatPanel` ganhou gravacao de audio via `MediaRecorder`, timer, botao de parar, preview tocavel e envio do audio gravado pelo fluxo multimidia existente.
+- Ajustado tipo do timer de gravacao para o retorno numerico de `window.setInterval` no browser.
+- Teste real contra Evolution/Supabase confirmou que `/chat/getBase64FromMediaMessage/{instance}` retorna base64 para audio recente (`audio/ogg; codecs=opus`).
+- Validacoes apos correcao de audio: `npm run lint`, `npm run typecheck`, `npm run test:run` (106 testes aprovados) e `npm run build` passaram.

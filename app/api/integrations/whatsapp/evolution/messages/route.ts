@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { toWhatsAppPhone } from '@/lib/phone';
 import {
+  getMediaBase64FromEvolution,
   sendAudioWithEvolution,
   sendMediaWithEvolution,
   sendTextWithEvolution,
@@ -44,6 +45,7 @@ type ChatMessageRow = {
   media_seconds?: number | null;
   media_width?: number | null;
   media_height?: number | null;
+  metadata?: unknown;
 };
 
 type ChatMessageWithMetadataRow = ChatMessageRow & {
@@ -120,6 +122,88 @@ function externalMessageIdFromPayload(payload: any) {
   );
 }
 
+function normalizeBase64ForStorage(value: string, mimeType?: string | null) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (text.startsWith('data:')) return text;
+  if (/^https?:\/\//i.test(text)) return null;
+  return mimeType ? `data:${mimeType};base64,${text}` : text;
+}
+
+function messagePayloadForMediaLookup(row: ChatMessageRow) {
+  const metadata = (row as unknown as { metadata?: any }).metadata;
+  const key =
+    metadata?.data?.key ??
+    metadata?.key ??
+    metadata?.message?.key ??
+    (row.external_message_id ? { id: row.external_message_id } : null);
+
+  return key ? { key } : null;
+}
+
+async function hydrateMissingMediaBase64(input: {
+  supabase: any;
+  organizationId: string;
+  config: EvolutionConfig | null;
+  messages: ChatMessageRow[];
+}) {
+  const { config, messages, organizationId, supabase } = input;
+  if (!config) return messages;
+
+  const mediaRows = messages
+    .filter((row) => {
+      const type = row.message_type || 'text';
+      return (
+        type !== 'text' &&
+        type !== 'contact' &&
+        type !== 'location' &&
+        !row.media_base64 &&
+        Boolean(row.media_url || row.external_message_id)
+      );
+    })
+    .slice(0, 8);
+
+  if (mediaRows.length === 0) return messages;
+
+  const byId = new Map(messages.map((row) => [row.id, row]));
+
+  await Promise.all(
+    mediaRows.map(async (row) => {
+      const message = messagePayloadForMediaLookup(row);
+      const downloaded = await getMediaBase64FromEvolution({
+        config,
+        messageId: row.external_message_id,
+        message,
+        convertToMp4: row.message_type === 'video',
+      });
+
+      if (!downloaded.ok || !downloaded.base64) return;
+
+      const mimeType = downloaded.mimetype || row.mime_type || null;
+      const mediaBase64 = normalizeBase64ForStorage(downloaded.base64, mimeType);
+      if (!mediaBase64) return;
+
+      const nextRow = {
+        ...row,
+        media_base64: mediaBase64,
+        mime_type: mimeType,
+      };
+      byId.set(row.id, nextRow);
+
+      await supabase
+        .from('whatsapp_messages')
+        .update({
+          media_base64: mediaBase64,
+          mime_type: mimeType,
+        })
+        .eq('organization_id', organizationId)
+        .eq('id', row.id);
+    })
+  );
+
+  return messages.map((row) => byId.get(row.id) ?? row);
+}
+
 async function sendWhatsAppMessage(input: {
   config: EvolutionConfig | null;
   phoneDigits: string;
@@ -186,7 +270,7 @@ export async function GET(req: Request) {
 
     const { data, error } = await ctx.supabase
       .from('whatsapp_messages')
-      .select('id,phone,contact_name,direction,message,provider,external_message_id,created_at,message_type,caption,media_url,media_base64,mime_type,file_name,file_size,media_seconds,media_width,media_height')
+      .select('id,phone,contact_name,direction,message,provider,external_message_id,created_at,message_type,caption,media_url,media_base64,mime_type,file_name,file_size,media_seconds,media_width,media_height,metadata')
       .eq('organization_id', ctx.organizationId)
       .eq('phone', normalizedPhone)
       .order('created_at', { ascending: true })
@@ -213,7 +297,7 @@ export async function GET(req: Request) {
 
       const recoveredInbound = ((fallbackInbound ?? []) as ChatMessageWithMetadataRow[])
         .filter((row) => metadataContainsPhone(row.metadata, phoneDigits))
-        .map(({ metadata: _metadata, ...row }) => ({
+        .map((row) => ({
           ...row,
           phone: normalizedPhone,
         }));
@@ -227,11 +311,27 @@ export async function GET(req: Request) {
       );
     }
 
+    if (isConfigured) {
+      const dbConfig: EvolutionConfig = {
+        baseUrl: String(connection.instance_url).replace(/\/$/, ''),
+        instance: String(connection.instance_name),
+        apiKey: String(connection.api_key),
+      };
+      mergedMessages = await hydrateMissingMediaBase64({
+        supabase: ctx.supabase,
+        organizationId: ctx.organizationId,
+        config: dbConfig,
+        messages: mergedMessages,
+      });
+    }
+
+    const responseMessages = mergedMessages.map(({ metadata: _metadata, ...row }) => row);
+
     return NextResponse.json({
       ok: true,
       configured: isConfigured,
       phone: normalizedPhone,
-      messages: mergedMessages,
+      messages: responseMessages,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro interno.';

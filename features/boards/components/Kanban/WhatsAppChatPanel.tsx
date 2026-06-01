@@ -7,6 +7,7 @@ import {
   Mic,
   Paperclip,
   Send,
+  Square,
   Trash2,
   Video,
   X,
@@ -78,6 +79,10 @@ function formatFileSize(bytes?: number | null) {
 }
 
 function readFileAsDataUrl(file: File) {
+  return readBlobAsDataUrl(file);
+}
+
+function readBlobAsDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -85,8 +90,14 @@ function readFileAsDataUrl(file: File) {
       else reject(new Error('Falha ao ler arquivo.'));
     };
     reader.onerror = () => reject(new Error('Falha ao ler arquivo.'));
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
   });
+}
+
+function getRecordingMimeType() {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const candidates = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm'];
+  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || '';
 }
 
 function messageTypeFromMime(mimeType: string): PendingAttachment['messageType'] {
@@ -119,7 +130,13 @@ export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClo
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [isConfigured, setIsConfigured] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<BlobPart[]>([]);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingTimerRef = useRef<number | null>(null);
 
   const normalizedPhone = useMemo(() => {
     const digits = toWhatsAppPhone(phone);
@@ -158,6 +175,13 @@ export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClo
     return () => window.clearInterval(id);
   }, [isOpen, normalizedPhone, loadMessages]);
 
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
   const handleFileSelected = async (file: File | null) => {
     if (!file) return;
 
@@ -182,6 +206,87 @@ export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClo
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const finishRecording = async () => {
+    const recorder = mediaRecorderRef.current;
+    const mimeType = recorder?.mimeType || getRecordingMimeType() || 'audio/webm';
+    const blob = new Blob(recordingChunksRef.current, { type: mimeType });
+
+    recordingChunksRef.current = [];
+    mediaRecorderRef.current = null;
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    recordingStreamRef.current = null;
+    if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = null;
+    setIsRecording(false);
+    setRecordingSeconds(0);
+
+    if (!blob.size) {
+      addToast('Audio vazio. Tente gravar novamente.', 'error');
+      return;
+    }
+
+    if (blob.size > MAX_ATTACHMENT_BYTES) {
+      addToast('Audio acima de 12 MB. Grave uma mensagem menor.', 'error');
+      return;
+    }
+
+    try {
+      const media = await readBlobAsDataUrl(blob);
+      setAttachment({
+        messageType: 'audio',
+        media,
+        mimeType,
+        fileName: `audio-${Date.now()}.${mimeType.includes('ogg') ? 'ogg' : 'webm'}`,
+        fileSize: blob.size,
+      });
+    } catch {
+      addToast('Falha ao preparar audio.', 'error');
+    }
+  };
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      addToast('Gravacao de audio nao suportada neste navegador.', 'error');
+      return;
+    }
+
+    try {
+      setAttachment(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = getRecordingMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      recordingChunksRef.current = [];
+      recordingStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        void finishRecording();
+      };
+      recorder.onerror = () => {
+        addToast('Falha durante a gravacao de audio.', 'error');
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingSeconds((seconds) => seconds + 1);
+      }, 1000);
+    } catch {
+      addToast('Nao foi possivel acessar o microfone.', 'error');
+    }
+  };
+
+  const stopRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === 'inactive') return;
+    recorder.stop();
   };
 
   const handleSend = async () => {
@@ -267,7 +372,7 @@ export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClo
 
   if (!isOpen) return null;
 
-  const canSend = Boolean((draft.trim() || attachment) && normalizedPhone && isConfigured && !sending);
+  const canSend = Boolean((draft.trim() || attachment) && normalizedPhone && isConfigured && !sending && !isRecording);
 
   return (
     <div className="fixed bottom-4 right-4 z-[70] flex h-[min(78vh,700px)] w-[min(460px,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900">
@@ -335,22 +440,33 @@ export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClo
         ) : null}
 
         {attachment ? (
-          <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200">
-            <MediaIcon type={attachment.messageType} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{attachment.fileName}</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                {attachment.messageType} {formatFileSize(attachment.fileSize)}
+          <div className="mb-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200">
+            <div className="flex items-center gap-2">
+              <MediaIcon type={attachment.messageType} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium">{attachment.fileName}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {attachment.messageType} {formatFileSize(attachment.fileSize)}
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setAttachment(null)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:hover:bg-white/10 dark:hover:text-white"
+                aria-label="Remover anexo"
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setAttachment(null)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:hover:bg-white/10 dark:hover:text-white"
-              aria-label="Remover anexo"
-            >
-              <Trash2 size={16} />
-            </button>
+            {attachment.messageType === 'audio' ? <audio src={attachment.media} controls className="mt-2 w-full" /> : null}
+          </div>
+        ) : null}
+
+        {isRecording ? (
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+            <span className="h-2 w-2 rounded-full bg-red-500" />
+            <span className="font-medium">Gravando audio</span>
+            <span className="text-xs opacity-80">{recordingSeconds}s</span>
           </div>
         ) : null}
 
@@ -366,12 +482,26 @@ export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClo
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={!normalizedPhone || sending || !isConfigured}
+            disabled={!normalizedPhone || sending || !isConfigured || isRecording}
             className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
             aria-label="Anexar arquivo"
             title="Anexar arquivo"
           >
             <Paperclip size={17} />
+          </button>
+          <button
+            type="button"
+            onClick={() => (isRecording ? stopRecording() : void startRecording())}
+            disabled={!normalizedPhone || sending || !isConfigured}
+            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border disabled:cursor-not-allowed disabled:opacity-50 ${
+              isRecording
+                ? 'border-red-500 bg-red-600 text-white hover:bg-red-700'
+                : 'border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10'
+            }`}
+            aria-label={isRecording ? 'Parar gravacao' : 'Gravar audio'}
+            title={isRecording ? 'Parar gravacao' : 'Gravar audio'}
+          >
+            {isRecording ? <Square size={15} /> : <Mic size={17} />}
           </button>
           <textarea
             value={draft}
@@ -384,12 +514,14 @@ export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClo
             }}
             placeholder={
               normalizedPhone
-                ? attachment
+                ? isRecording
+                  ? 'Gravando audio...'
+                  : attachment
                   ? 'Legenda opcional...'
                   : 'Digite uma mensagem...'
                 : 'Contato sem telefone'
             }
-            disabled={!normalizedPhone || sending || !isConfigured}
+            disabled={!normalizedPhone || sending || !isConfigured || isRecording}
             rows={2}
             className="min-h-[44px] max-h-28 flex-1 resize-none rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-60 dark:border-white/10 dark:bg-slate-800 dark:text-slate-100"
           />

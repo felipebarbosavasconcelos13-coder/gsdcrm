@@ -31,6 +31,13 @@ export type EvolutionSendAudioInput = {
   delay?: number;
 };
 
+export type EvolutionGetMediaBase64Input = {
+  config?: EvolutionConfig | null;
+  messageId?: string | null;
+  message?: unknown;
+  convertToMp4?: boolean;
+};
+
 export type EvolutionConnectionCheckResult = {
   ok: boolean;
   status: number;
@@ -102,6 +109,38 @@ function extractEvolutionError(payload: any, status: number) {
   if (status === 422) return 'Numero ou payload invalido para envio de WhatsApp.';
 
   return 'Falha ao enviar mensagem via Evolution API.';
+}
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (text) return text;
+  }
+  return null;
+}
+
+function extractMediaBase64Payload(payload: any) {
+  const base64 = firstText(
+    payload?.base64,
+    payload?.data?.base64,
+    payload?.media,
+    payload?.data?.media,
+    payload?.file,
+    payload?.data?.file,
+    payload?.result?.base64,
+    payload?.response?.base64
+  );
+
+  const mimetype = firstText(
+    payload?.mimetype,
+    payload?.mimeType,
+    payload?.data?.mimetype,
+    payload?.data?.mimeType,
+    payload?.result?.mimetype,
+    payload?.response?.mimetype
+  );
+
+  return { base64, mimetype };
 }
 
 function asStateToken(value: unknown): string {
@@ -541,6 +580,71 @@ export async function sendAudioWithEvolution(input: EvolutionSendAudioInput) {
   return {
     ok: true,
     status: response.status,
+    payload,
+  } as const;
+}
+
+export async function getMediaBase64FromEvolution(input: EvolutionGetMediaBase64Input) {
+  const config = normalizeEvolutionConfig(input.config ?? getEvolutionConfig());
+  if (!config) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'Evolution API nao configurada no servidor.',
+    } as const;
+  }
+
+  const message =
+    input.message && typeof input.message === 'object'
+      ? input.message
+      : { key: { id: String(input.messageId || '').trim() } };
+
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(config.instance)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: config.apiKey,
+      },
+      body: JSON.stringify({
+        message,
+        convertToMp4: input.convertToMp4 ?? false,
+      }),
+      cache: 'no-store',
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Falha ao acessar Evolution API.';
+    return {
+      ok: false,
+      status: 502,
+      error: `Falha ao acessar Evolution API: ${message}`,
+    } as const;
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: extractEvolutionError(payload as any, response.status),
+      payload,
+    } as const;
+  }
+
+  const media = extractMediaBase64Payload(payload as any);
+
+  return {
+    ok: true,
+    status: response.status,
+    base64: media.base64,
+    mimetype: media.mimetype,
     payload,
   } as const;
 }
