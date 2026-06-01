@@ -69,6 +69,21 @@ function looksLikeHttpUrl(value: string) {
   return /^https?:\/\//i.test(v);
 }
 
+/**
+ * Evolution API aceita media como URL http(s) ou base64 "cru".
+ * O frontend envia data URLs (`data:audio/ogg;base64,XXXX`), entao removemos
+ * o prefixo `data:<mime>;base64,` para evitar o erro
+ * "Owned media must be a url, base64, or valid file with buffer".
+ */
+function toEvolutionMedia(value: string): string {
+  const text = String(value || '').trim();
+  if (!text) return text;
+  if (/^https?:\/\//i.test(text)) return text;
+  const match = text.match(/^data:[^,]*;base64,([\s\S]*)$/);
+  if (match) return match[1].trim();
+  return text;
+}
+
 function normalizeEvolutionConfig(config: EvolutionConfig | null): EvolutionConfig | null {
   if (!config) return null;
 
@@ -489,7 +504,7 @@ export async function sendMediaWithEvolution(input: EvolutionSendMediaInput) {
         mediatype: input.mediatype,
         mimetype: input.mimetype,
         caption: input.caption ?? '',
-        media: input.media,
+        media: toEvolutionMedia(input.media),
         fileName: input.fileName,
         delay: input.delay ?? 0,
       }),
@@ -547,7 +562,7 @@ export async function sendAudioWithEvolution(input: EvolutionSendAudioInput) {
       },
       body: JSON.stringify({
         number: input.phone,
-        audio: input.audio,
+        audio: toEvolutionMedia(input.audio),
         delay: input.delay ?? 0,
       }),
       cache: 'no-store',

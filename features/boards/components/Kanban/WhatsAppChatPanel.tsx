@@ -108,11 +108,16 @@ function messageTypeFromMime(mimeType: string): PendingAttachment['messageType']
 }
 
 function getMediaSrc(message: WhatsAppMessage) {
-  if (message.media_url) return message.media_url;
+  // Preferir base64 tocavel: WhatsApp entrega midia recebida como URL `.enc`
+  // criptografada da CDN, que o navegador nao consegue reproduzir.
   const value = message.media_base64;
-  if (!value) return '';
-  if (value.startsWith('data:') || value.startsWith('http://') || value.startsWith('https://')) return value;
-  return `data:${message.mime_type || 'application/octet-stream'};base64,${value}`;
+  if (value) {
+    if (value.startsWith('data:') || value.startsWith('http://') || value.startsWith('https://')) return value;
+    return `data:${message.mime_type || 'application/octet-stream'};base64,${value}`;
+  }
+  const url = message.media_url;
+  if (url && /^https?:\/\//i.test(url) && !/\.enc(\?|$)/i.test(url)) return url;
+  return '';
 }
 
 function MediaIcon({ type }: { type: WhatsAppMessageType }) {

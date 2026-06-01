@@ -52,3 +52,15 @@
 - Ajustado tipo do timer de gravacao para o retorno numerico de `window.setInterval` no browser.
 - Teste real contra Evolution/Supabase confirmou que `/chat/getBase64FromMediaMessage/{instance}` retorna base64 para audio recente (`audio/ogg; codecs=opus`).
 - Validacoes apos correcao de audio: `npm run lint`, `npm run typecheck`, `npm run test:run` (106 testes aprovados) e `npm run build` passaram.
+
+## 2026-06-01 - Envio/recepcao de midia WhatsApp
+
+- Investigado erro `Owned media must be a url, base64, or valid file with buffer (status 400)` ao enviar audio/arquivo: o frontend envia `media` como data URL (`data:audio/ogg;base64,...`), mas a Evolution API aceita apenas URL http(s) ou base64 "cru".
+- Adicionado helper `toEvolutionMedia` em `lib/integrations/evolution/client.ts` que remove o prefixo `data:<mime>;base64,` antes de enviar; aplicado em `sendMediaWithEvolution` (campo `media`) e `sendAudioWithEvolution` (campo `audio`).
+- Corrigida reproducao de midia recebida: `getMediaSrc` no `WhatsAppChatPanel` priorizava `media_url`, que para mensagens recebidas e uma URL `.enc` criptografada da CDN do WhatsApp e nao toca no navegador. Agora prefere `media_base64` e so usa `media_url` quando for http(s) e nao terminar em `.enc`.
+- Validacoes apos correcao: `npm run lint`, `npm run typecheck` e `npm run test:run` (106 testes aprovados) passaram.
+- Verificada cobertura para novas instalacoes (sem necessidade de codigo novo no instalador):
+  - Correcoes de envio/recepcao sao codigo de runtime (`lib/integrations/evolution/client.ts` e `WhatsAppChatPanel.tsx`), distribuidas automaticamente no deploy.
+  - Schema de midia ja aplicado pelo instalador: `runSchemaMigration` aplica todos os `supabase/migrations/*.sql` (inclui `20260529173000_whatsapp_message_media.sql`); `ensureWhatsAppSchema` tambem inclui o arquivo de midia como fallback runtime.
+  - Recepcao de midia toca por padrao: ao salvar/alternar uma conexao Evolution (`config` POST/PATCH), `syncEvolutionWebhook` registra o webhook com `webhookBase64: true`, fazendo a midia recebida chegar em base64.
+- Validacao final completa apos as correcoes de midia: `npm run lint`, `npm run typecheck`, `npm run test:run` (106 testes aprovados) e `npm run build` passaram.

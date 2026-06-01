@@ -44,3 +44,10 @@ Aplicar as correcoes identificadas na analise profunda do GenialCRM mantendo ras
 - [x] Adicionar busca de base64 via Evolution API quando uma midia do historico estiver sem `media_base64`.
 - [x] Adicionar botao de gravacao de audio no chat com preview e envio como mensagem de audio.
 - [x] Validar lint, typecheck, testes e build.
+
+## Correcao Envio/Recepcao de Midia WhatsApp
+
+- [x] Diagnosticar erro 400 `Owned media must be a url, base64, or valid file with buffer` ao enviar audio/arquivo: data URL enviado com prefixo `data:<mime>;base64,` nao aceito pela Evolution.
+- [x] Remover prefixo do data URL antes de enviar midia/audio para a Evolution (`toEvolutionMedia`).
+- [x] Corrigir reproducao de midia recebida priorizando `media_base64` e ignorando URLs `.enc` criptografadas em `getMediaSrc`.
+- [x] Validar lint, typecheck e testes.
