@@ -40,3 +40,5 @@
 - Diagnostico: criacao manual de lead/contato dependia de trigger inexistente para preencher `organization_id`; com RLS multi-tenant ativo, inserts sem `organization_id` sao bloqueados.
 - Corrigido `contactsService.create` e `companiesService.create` para resolver a organizacao do usuario autenticado via `profiles` e enviar `organization_id` no insert.
 - Validacoes apos correcao: `npm run lint`, `npm run typecheck`, `npm run test:run` (106 testes aprovados) e `npm run build` passaram.
+- Adicionada migration `20260601162000_default_org_on_lead_inserts.sql` para o instalador criar trigger defensivo que preenche `organization_id` em `contacts`, `crm_companies` e `leads`.
+- Validacoes apos migration defensiva do instalador: `npm run lint`, `npm run typecheck`, `npm run test:run` (106 testes aprovados) e `npm run build` passaram.

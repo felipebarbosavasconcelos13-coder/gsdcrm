@@ -36,3 +36,4 @@ Aplicar as correcoes identificadas na analise profunda do GenialCRM mantendo ras
 - [x] Diagnosticar bloqueio de criacao: `contacts` exige `organization_id` por RLS e o insert manual nao enviava esse campo.
 - [x] Ajustar criacao de contatos/leads e empresas para enviar `organization_id` do usuario autenticado.
 - [x] Validar lint, typecheck, testes e build.
+- [x] Adicionar migration do instalador para preencher `organization_id` automaticamente em inserts de contatos, empresas e leads.
