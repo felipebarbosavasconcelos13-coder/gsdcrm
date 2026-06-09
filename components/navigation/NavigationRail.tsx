@@ -1,7 +1,9 @@
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils/cn';
+import { useTheme } from '@/context/ThemeContext';
 import { PRIMARY_NAV, SECONDARY_NAV } from './navConfig';
 
 export interface NavigationRailProps {
@@ -11,6 +13,7 @@ export interface NavigationRailProps {
 
 export function NavigationRail({ onOpenMore }: NavigationRailProps) {
   const pathname = usePathname();
+  const { darkMode } = useTheme();
 
   const isHrefActive = (href: string) =>
     pathname === href ||
@@ -28,9 +31,14 @@ export function NavigationRail({ onOpenMore }: NavigationRailProps) {
       )}
     >
       <div className="flex flex-col items-center gap-2 py-4">
-        <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-primary-500/20">
-          N
-        </div>
+        <Image
+          src={darkMode ? "/logo_dark.webp" : "/logo_light.webp"}
+          alt="Logo GenialCRM"
+          width={40}
+          height={40}
+          className="w-10 h-10 object-contain shrink-0"
+          priority
+        />
       </div>
 
       <div className="flex-1 px-3 py-2 overflow-y-auto scrollbar-custom">

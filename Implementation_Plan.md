@@ -1,6 +1,6 @@
-# Plano de Implementação - Commit e Push das Correções do WhatsApp no GitHub
+# Plano de Implementação - Commit e Push das Integrações de Logos no GitHub
 
-Este plano visa realizar o commit e push de todas as alterações feitas para corrigir o recebimento de mensagens do WhatsApp, tratamento do 9º dígito e criação automática de leads para o repositório remoto.
+Este plano visa realizar o commit e push de todas as alterações feitas para otimizar e integrar as novas logos transparentes no CRM para o repositório remoto.
 
 ---
 
@@ -8,14 +8,18 @@ Este plano visa realizar o commit e push de todas as alterações feitas para co
 
 ### [Git Commit & Push]
 Realizaremos as seguintes operações de Git:
-1. **Adicionar arquivos**: Adicionar todos os arquivos modificados e novos ao stage (`git add .`).
+1. **Adicionar arquivos**: Adicionar arquivos modificados e novos ao stage, **excluindo explicitamente `GEMINI.md`** para evitar o envio de tokens de acesso:
    - `Implementation_Plan.md`
    - `LOG_DESENVOLVIMENTO.md`
    - `DOCUMENTACAO.md`
-   - `app/api/webhooks/evolution/route.ts`
-   - `test/evolutionWebhook.test.ts`
+   - `components/Layout.tsx`
+   - `components/navigation/NavigationRail.tsx`
+   - `public/logo_light.webp`
+   - `public/logo_dark.webp`
+   - `Logo_para_fundo_claro.png`
+   - `Logo_para_fundo_escuro.png`
 2. **Commit**: Realizar o commit das alterações com uma mensagem descritiva:
-   `git commit -m "feat(webhook): fix WhatsApp 9th digit and resilient lead auto-creation"`
+   `git commit -m "feat(brand): integrate transparent optimized WebP logos"`
 3. **Push**: Enviar as alterações para a branch `main` do repositório remoto:
    `git push origin main`
 
@@ -24,4 +28,4 @@ Realizaremos as seguintes operações de Git:
 ## Verification Plan
 
 ### Manual Verification
-- Validar se o push foi completado com sucesso e os arquivos estão no repositório GitHub correspondente.
+- Confirmar se o push foi completado com sucesso e os arquivos estão no repositório GitHub sem incluir segredos.

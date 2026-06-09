@@ -104,7 +104,17 @@ A comunicação em tempo real via WhatsApp ocorre através da conexão com inst�
     *   **Fallback CDN**: Quando o base64 de mídias recebidas não vem no webhook, o backend invoca o endpoint `/chat/getBase64FromMediaMessage/{instance}` da Evolution para baixar o arquivo criptografado da CDN do WhatsApp e hidratá-lo localmente na tabela `whatsapp_messages`.
     *   **Envio de Mídia**: O frontend captura mídias através do chat e envia arquivos. Formatos de áudio gravados localmente no microfone do navegador via `MediaRecorder` são normalizados retirando-se o prefixo de dados Data-URL (`data:audio/ogg;base64,...`) por meio do helper `toEvolutionMedia` antes do payload ser transmitido para a Evolution API.
 
+### 🎨 4.3 Identidade Visual e Logos
+O sistema possui suporte para exibição dinâmica de logotipos de alta performance com fundo transparente nos formatos otimizados **WebP**:
+
+*   **Processamento de Logos**: Os logotipos originais de fundo sólido (`Logo_para_fundo_claro.png` e `Logo_para_fundo_escuro.png`) foram processados via script Python utilizando o algoritmo de Flood-fill BFS a partir dos cantos externos para remover o fundo de forma não destrutiva, seguido do corte automático (croppagem) das margens transparentes.
+*   **Armazenamento**:
+    *   `/logo_light.webp`: Logo com transparência otimizada para temas/layouts claros.
+    *   `/logo_dark.webp`: Logo com transparência otimizada para temas/layouts escuros.
+*   **Comutação Reativa**: A sidebar principal (`components/Layout.tsx`) e o menu responsivo de tablets (`components/navigation/NavigationRail.tsx`) consomem dinamicamente `/logo_dark.webp` ou `/logo_light.webp` dependendo da propriedade `darkMode` em tempo de execução, garantindo contraste perfeito em todos os contextos de tema do CRM.
+
 ---
+
 
 ## 🔒 5. Banco de Dados e Segurança Multi-tenant (RLS)
 
