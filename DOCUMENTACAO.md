@@ -66,7 +66,12 @@ Abaixo está o mapeamento detalhado da estrutura física do projeto e a responsa
     *   [`lib/integrations/`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/integrations): Cliente de conexão com a API do WhatsApp/Evolution.
         *   [`lib/integrations/evolution/webhook-helpers.ts`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/integrations/evolution/webhook-helpers.ts): Funções utilitárias para parsing de mensagens WhatsApp (texto, imagem, áudio, vídeo, documento, sticker), extração de números de telefone com suporte ao nono dígito brasileiro, variações de formato e seleção do melhor candidato de telefone via scoring.
         *   [`lib/integrations/evolution/webhook-persistence.ts`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/integrations/evolution/webhook-persistence.ts): Lógica de persistência do webhook: `logWebhookEvent` (registro de eventos em `webhook_events_in`), `resolveOrganizationId` (resolução da organização pela instância Evolution), e `persistInboundMessage` (criação automática de contatos e deals para novos leads, com log detalhado de erros).
-    *   [`lib/query/`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/query): Chaves unificadas e hooks para consumo do TanStack Query.
+    *   [`lib/stores/`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/stores): Gerenciamento de estado global com Zustand, modularizado por domínio.
+        *   [`lib/stores/ui-store.ts`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/stores/ui-store.ts): Estado de interface (sidebar, modais, busca global, loading) com seletores de performance.
+        *   [`lib/stores/form-store.ts`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/stores/form-store.ts): Rascunhos de formulário com persistência em localStorage e estados de submissão.
+        *   [`lib/stores/notification-store.ts`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/stores/notification-store.ts): Notificações toast com auto-dismiss configurável.
+        *   [`lib/stores/index.ts`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/stores/index.ts): Barrel re-export mantendo compatibilidade com `@/lib/stores`.
+
 *   [`supabase/`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/supabase): Migrations de banco de dados (`migrations/`), funções serverless (`functions/`) e reset scripts.
 
 ---

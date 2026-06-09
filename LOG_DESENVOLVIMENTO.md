@@ -121,6 +121,20 @@
 - Validado o fluxo completo de criação de leads com sucesso: contato "Relógios Benyar" (`+553182668783`) criado automaticamente como LEAD com deal no board "1. Captação / Leads", estágio "Novos Leads", confirmado via banco de dados e painel de logs.
 - Validada a estabilidade com `npm run lint` (zero warnings), `npm run typecheck` (sucesso), testes (todos aprovados) e `npm run build` (compilado com sucesso).
 
+## 2026-06-09 - Refatoração de Stores e Arquitetura
+
+- Realizado levantamento completo dos arquivos do projeto: 46 arquivos com mais de 400 linhas, 39 com acoplamento excessivo (5+ hooks), 9 com cobertura de testes.
+- Refatorado `lib/stores/index.ts` (371 linhas monolíticas) em 3 módulos especializados:
+  - `lib/stores/ui-store.ts` (57 linhas): estado de UI (sidebar, modais, busca global, loading states) + seletores de performance.
+  - `lib/stores/form-store.ts` (64 linhas): rascunhos de formulário com persistência em localStorage e estados de submissão.
+  - `lib/stores/notification-store.ts` (50 linhas): notificações toast com auto-dismiss e tipagem exportada.
+  - `lib/stores/index.ts` (24 linhas): barrel re-export mantendo API pública compatível (`@/lib/stores`).
+- Arquivos analisados e com split postergado por risco de regressão:
+  - `lib/ai/tools.ts` (1657 linhas): 20+ tools com acoplamento interno via helpers compartilhados.
+  - `lib/integrations/evolution/client.ts` (589 linhas): helpers internos reutilizados entre operações (texto, mídia, webhook, conexão).
+  - `lib/public-api/openapi.ts` (786 linhas): arquivo de dados puro, bem estruturado por domínio.
+  - Componentes >1000 linhas (wizard, DealCockpit, FocusContextPanel, BoardCreationWizard): requerem extração de sub-componentes com cobertura de testes.
+- Validada a estabilidade com `npm run lint` (zero warnings), `npm run typecheck` (sucesso) e `npm run build` (compilado com sucesso).
 
 
 
