@@ -167,6 +167,36 @@ function toPhoneWithPlus(value: string): string {
   return raw.startsWith('+') ? raw : `+${raw}`;
 }
 
+export function getBrPhoneVariations(phoneWithPlus: string): string[] {
+  const normalized = phoneWithPlus.trim();
+  if (!normalized) return [];
+
+  const digits = normalized.replace(/\D/g, '');
+  if (!digits.startsWith('55')) {
+    return [normalized];
+  }
+
+  const variations = [normalized];
+
+  if (digits.length === 13 && digits.charAt(4) === '9') {
+    // 55 + DD + 9 + 8 digits -> remove 9
+    const withoutNine = '55' + digits.substring(2, 4) + digits.substring(5);
+    const formatted = `+${withoutNine}`;
+    if (!variations.includes(formatted)) {
+      variations.push(formatted);
+    }
+  } else if (digits.length === 12) {
+    // 55 + DD + 8 digits -> insert 9 at index 4
+    const withNine = '55' + digits.substring(2, 4) + '9' + digits.substring(4);
+    const formatted = `+${withNine}`;
+    if (!variations.includes(formatted)) {
+      variations.push(formatted);
+    }
+  }
+
+  return variations;
+}
+
 function isLikelyOpaqueWhatsAppId(phoneWithPlus: string): boolean {
   const digits = String(phoneWithPlus || '').replace(/\D/g, '');
   if (!digits) return false;
@@ -509,10 +539,20 @@ async function persistInboundMessage(input: {
     const organizationId = await resolveOrganizationId(admin, input.instanceName, input.connectionId);
     if (!organizationId) return null;
 
-    const allCandidatesWithPlus = uniquePhones([
+    const baseCandidates = uniquePhones([
       input.phone,
       ...(input.phoneCandidates ?? []),
     ]).map(toPhoneWithPlus);
+
+    const allCandidatesWithPlus: string[] = [];
+    for (const phone of baseCandidates) {
+      const vars = getBrPhoneVariations(phone);
+      for (const v of vars) {
+        if (!allCandidatesWithPlus.includes(v)) {
+          allCandidatesWithPlus.push(v);
+        }
+      }
+    }
 
     const ownerCandidatesWithPlus = new Set(
       uniquePhones(input.ownerPhoneCandidates ?? []).map(toPhoneWithPlus)
@@ -589,23 +629,100 @@ async function persistInboundMessage(input: {
       return null;
     }
 
+    const selectedPhoneVariations = getBrPhoneVariations(selectedPhone);
+
     const { data: selectedContactRows } = await admin
       .from('contacts')
-      .select('id')
+      .select('id, phone')
       .eq('organization_id', organizationId)
-      .eq('phone', selectedPhone)
+      .in('phone', selectedPhoneVariations)
       .limit(1);
 
     const { data: selectedOutRows } = await admin
       .from('whatsapp_messages')
-      .select('id')
+      .select('id, phone')
       .eq('organization_id', organizationId)
       .eq('direction', 'out')
-      .eq('phone', selectedPhone)
+      .in('phone', selectedPhoneVariations)
       .limit(1);
 
-    const selectedIsKnown =
-      (selectedContactRows ?? []).length > 0 || (selectedOutRows ?? []).length > 0;
+    let selectedIsKnown = false;
+    if (selectedContactRows && selectedContactRows.length > 0) {
+      selectedPhone = selectedContactRows[0].phone;
+      selectedIsKnown = true;
+    } else if (selectedOutRows && selectedOutRows.length > 0) {
+      selectedPhone = selectedOutRows[0].phone;
+      selectedIsKnown = true;
+    }
+
+    if (!selectedIsKnown) {
+      // 1. Buscar o primeiro Board da organização
+      const { data: boardData } = await admin
+        .from('boards')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      // 2. Buscar a primeira Stage desse board
+      let stageId: string | null = null;
+      if (boardData?.id) {
+        const { data: stageData } = await admin
+          .from('board_stages')
+          .select('id')
+          .eq('organization_id', organizationId)
+          .eq('board_id', boardData.id)
+          .order('order', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        stageId = stageData?.id || null;
+      }
+
+      // 3. Criar Contato na tabela contacts
+      const now = new Date().toISOString();
+      const contactName = input.contactName || `WhatsApp ${selectedPhone}`;
+      const contactPayload = {
+        organization_id: organizationId,
+        name: contactName,
+        phone: selectedPhone,
+        created_at: now,
+        updated_at: now,
+        status: 'ACTIVE',
+        stage: 'LEAD',
+      };
+      
+      const { data: newContact, error: contactError } = await admin
+        .from('contacts')
+        .insert(contactPayload)
+        .select('id')
+        .single();
+
+      if (contactError) {
+        console.error('Erro ao criar contato automático no webhook:', contactError);
+      } else if (newContact?.id) {
+        // 4. Criar Deal na tabela deals
+        if (boardData?.id && stageId) {
+          const dealPayload = {
+            organization_id: organizationId,
+            title: contactName,
+            board_id: boardData.id,
+            stage_id: stageId,
+            contact_id: newContact.id,
+            value: 0,
+            is_won: false,
+            is_lost: false,
+            created_at: now,
+            updated_at: now,
+          };
+          const { error: dealError } = await admin.from('deals').insert(dealPayload);
+          if (dealError) {
+            console.error('Erro ao criar deal automático no webhook:', dealError);
+          }
+        }
+      }
+    }
 
     // Fallback APENAS para payloads LID/IDs opacos da Meta:
     // tenta correlacionar com mensagens outbound recentes.

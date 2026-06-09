@@ -76,3 +76,18 @@
   - Ajustada a heurística de fallback no `persistInboundMessage` para que ela seja acionada **apenas** quando o telefone recebido é um ID opaco/LID da Meta (`isLikelyOpaqueWhatsAppId`). Telefones reais e válidos agora mantêm seu número original, permitindo a ingestão correta como novo lead.
 - Validacoes de estabilidade executadas e aprovadas com sucesso: `npm run lint` (zero warnings), `npm run typecheck` (sucesso), `npm run test:run` (106 testes aprovados) e `npm run build` (sucesso completo do bundle Next.js).
 
+## 2026-06-09
+
+- Realizada análise técnica profunda da base de código do GenialCRM.
+- Criado o arquivo de documentação técnica centralizado `DOCUMENTACAO.md` contendo a visão geral do sistema, estrutura física de pastas, proteção de rotas (Proxy), fluxo do assistente inteligente (Vercel AI SDK v6), integrações de mídia no WhatsApp (Evolution API v2), e políticas de segurança RLS (multi-tenant) e triggers automatizados.
+- Atualizado o plano de implementação e rastreamento de tarefas do projeto.
+- Validado o status de execução de testes automatizados com sucesso (106 testes aprovados, zero falhas).
+- Validada a integridade e saúde das credenciais de teste fornecidas no arquivo `GEMINI.md` para a Vercel e o Supabase via chamadas de API oficiais, confirmando acesso total e validade de ambos os tokens.
+- Corrigido o webhook de mensagens do WhatsApp (Evolution API v2) para suportar a busca de contatos com ou sem o nono dígito do Brasil (12 e 13 dígitos), adicionando a função `getBrPhoneVariations` e alterando a busca de contatos para utilizar o operador `in`.
+- Implementada a criação resiliente e automática de novos contatos (`contacts`) e negócios (`deals`) no primeiro board/estágio da organização quando o remetente for desconhecido, tornando o salvamento de leads independente de webhooks externos adicionais.
+- Criada a suite de testes unitários para a validação do nono dígito em `test/evolutionWebhook.test.ts`.
+- Validada a estabilidade com `npm run lint` (sucesso), `npm run typecheck` (sucesso), `npm run test:run` (110 testes aprovados) e `npm run build` (build compilado com sucesso).
+
+
+
+
