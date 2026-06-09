@@ -14,9 +14,9 @@ import { AICenterSettings } from './AICenterSettings';
 
 import { UsersPage } from './UsersPage';
 import { useAuth } from '@/context/AuthContext';
-import { Settings as SettingsIcon, Users, Database, Sparkles, Plug, Package } from 'lucide-react';
+import { Settings as SettingsIcon, Users, Database, Sparkles, Plug, Package, Radio } from 'lucide-react';
 
-type SettingsTab = 'general' | 'products' | 'integrations' | 'ai' | 'data' | 'users';
+type SettingsTab = 'general' | 'products' | 'integrations' | 'ai' | 'data' | 'users' | 'logs';
 
 interface GeneralSettingsProps {
   hash?: string;
@@ -106,13 +106,13 @@ const ProductsSettings: React.FC = () => {
 };
 
 const IntegrationsSettings: React.FC = () => {
-  type IntegrationsSubTab = 'channels' | 'api' | 'webhooks' | 'mcp' | 'logs';
+  type IntegrationsSubTab = 'channels' | 'api' | 'webhooks' | 'mcp';
   const [subTab, setSubTab] = useState<IntegrationsSubTab>('channels');
 
   useEffect(() => {
     const syncFromHash = () => {
     const h = typeof window !== 'undefined' ? (window.location.hash || '').replace('#', '') : '';
-    if (h === 'channels' || h === 'webhooks' || h === 'api' || h === 'mcp' || h === 'logs') setSubTab(h as IntegrationsSubTab);
+    if (h === 'channels' || h === 'webhooks' || h === 'api' || h === 'mcp') setSubTab(h as IntegrationsSubTab);
     };
 
     syncFromHash();
@@ -140,7 +140,6 @@ const IntegrationsSettings: React.FC = () => {
           { id: 'webhooks' as const, label: 'Webhooks' },
           { id: 'api' as const, label: 'API' },
           { id: 'mcp' as const, label: 'MCP' },
-          { id: 'logs' as const, label: 'Logs' },
         ] as const).map((t) => {
           const active = subTab === t.id;
           return (
@@ -164,7 +163,6 @@ const IntegrationsSettings: React.FC = () => {
       {subTab === 'api' && <ApiKeysSection />}
       {subTab === 'webhooks' && <WebhooksSection />}
       {subTab === 'mcp' && <McpSection />}
-      {subTab === 'logs' && <WebhookLogPanel />}
     </div>
   );
 };
@@ -199,6 +197,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ tab: initialTab }) => {
       setActiveTab('data');
     } else if (pathname?.includes('/settings/users')) {
       setActiveTab('users');
+    } else if (pathname?.includes('/settings/logs')) {
+      setActiveTab('logs');
     } else {
       setActiveTab('general');
     }
@@ -211,6 +211,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ tab: initialTab }) => {
     { id: 'ai' as SettingsTab, name: 'Central de I.A', icon: Sparkles },
     { id: 'data' as SettingsTab, name: 'Dados', icon: Database },
     ...(profile?.role === 'admin' ? [{ id: 'users' as SettingsTab, name: 'Equipe', icon: Users }] : []),
+    ...(profile?.role === 'admin' ? [{ id: 'logs' as SettingsTab, name: 'Logs de Webhook', icon: Radio }] : []),
   ];
 
   const renderContent = () => {
@@ -225,6 +226,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ tab: initialTab }) => {
         return <DataStorageSettings />;
       case 'users':
         return <UsersPage />;
+      case 'logs':
+        return <WebhookLogPanel />;
       default:
         return <GeneralSettings hash={hash} isAdmin={profile?.role === 'admin'} />;
     }
