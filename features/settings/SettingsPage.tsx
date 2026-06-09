@@ -5,6 +5,7 @@ import { TagsManager } from './components/TagsManager';
 import { CustomFieldsManager } from './components/CustomFieldsManager';
 import { ApiKeysSection } from './components/ApiKeysSection';
 import { WebhooksSection } from './components/WebhooksSection';
+import { WebhookLogPanel } from './components/WebhookLogPanel';
 import { McpSection } from './components/McpSection';
 import { WhatsAppChannelsSection } from './components/WhatsAppChannelsSection';
 import { DataStorageSettings } from './components/DataStorageSettings';
@@ -105,13 +106,13 @@ const ProductsSettings: React.FC = () => {
 };
 
 const IntegrationsSettings: React.FC = () => {
-  type IntegrationsSubTab = 'channels' | 'api' | 'webhooks' | 'mcp';
+  type IntegrationsSubTab = 'channels' | 'api' | 'webhooks' | 'mcp' | 'logs';
   const [subTab, setSubTab] = useState<IntegrationsSubTab>('channels');
 
   useEffect(() => {
     const syncFromHash = () => {
     const h = typeof window !== 'undefined' ? (window.location.hash || '').replace('#', '') : '';
-    if (h === 'channels' || h === 'webhooks' || h === 'api' || h === 'mcp') setSubTab(h as IntegrationsSubTab);
+    if (h === 'channels' || h === 'webhooks' || h === 'api' || h === 'mcp' || h === 'logs') setSubTab(h as IntegrationsSubTab);
     };
 
     syncFromHash();
@@ -139,6 +140,7 @@ const IntegrationsSettings: React.FC = () => {
           { id: 'webhooks' as const, label: 'Webhooks' },
           { id: 'api' as const, label: 'API' },
           { id: 'mcp' as const, label: 'MCP' },
+          { id: 'logs' as const, label: 'Logs' },
         ] as const).map((t) => {
           const active = subTab === t.id;
           return (
@@ -162,6 +164,7 @@ const IntegrationsSettings: React.FC = () => {
       {subTab === 'api' && <ApiKeysSection />}
       {subTab === 'webhooks' && <WebhooksSection />}
       {subTab === 'mcp' && <McpSection />}
+      {subTab === 'logs' && <WebhookLogPanel />}
     </div>
   );
 };

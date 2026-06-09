@@ -197,6 +197,37 @@ export function getBrPhoneVariations(phoneWithPlus: string): string[] {
   return variations;
 }
 
+async function logWebhookEvent(input: {
+  admin: ReturnType<typeof createStaticAdminClient>;
+  organizationId: string | null;
+  sourceId: string | null;
+  provider: string;
+  externalEventId: string | null;
+  payload: unknown;
+  status: string;
+  error: string | null;
+}) {
+  if (!input.organizationId || !input.sourceId) return;
+  const dedupeId = input.externalEventId || `${input.status}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    await input.admin.from('webhook_events_in').upsert(
+      {
+        organization_id: input.organizationId,
+        source_id: input.sourceId,
+        provider: input.provider,
+        external_event_id: dedupeId,
+        payload: input.payload ?? {},
+        status: input.status,
+        error: input.error ?? undefined,
+        received_at: new Date().toISOString(),
+      },
+      { onConflict: 'source_id, external_event_id', ignoreDuplicates: false }
+    );
+  } catch {
+    // Log é best-effort; não quebra o fluxo do webhook.
+  }
+}
+
 function isLikelyOpaqueWhatsAppId(phoneWithPlus: string): boolean {
   const digits = String(phoneWithPlus || '').replace(/\D/g, '');
   if (!digits) return false;
@@ -834,11 +865,11 @@ export async function POST(req: Request) {
   try {
     const url = new URL(req.url);
     const token = url.searchParams.get('token') ?? '';
-    let sourceId = url.searchParams.get('sourceId') ?? process.env.EVOLUTION_WEBHOOK_SOURCE_ID ?? '';
+    const sourceId = url.searchParams.get('sourceId') ?? process.env.EVOLUTION_WEBHOOK_SOURCE_ID ?? '';
     const connectionId = url.searchParams.get('connectionId') ?? '';
 
     const expectedToken = process.env.EVOLUTION_WEBHOOK_TOKEN ?? '';
-    let sourceSecret = process.env.EVOLUTION_WEBHOOK_SOURCE_SECRET ?? '';
+    const sourceSecret = process.env.EVOLUTION_WEBHOOK_SOURCE_SECRET ?? '';
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 
     if (expectedToken && token !== expectedToken) {
@@ -847,7 +878,42 @@ export async function POST(req: Request) {
 
     const raw = await req.json();
     const eventName = normalizeEvolutionEventName(raw?.event || raw?.type);
+
+    const instanceName = pickInstanceName(raw);
+    const admin = createStaticAdminClient();
+    const organizationId = await resolveOrganizationId(admin, instanceName, connectionId);
+
+    let resolvedSourceId = sourceId;
+    let resolvedSourceSecret = sourceSecret;
+    if ((!resolvedSourceId || !resolvedSourceSecret) && organizationId) {
+      const { data: inboundSource } = await admin
+        .from('integration_inbound_sources')
+        .select('id, secret')
+        .eq('organization_id', organizationId)
+        .eq('active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (inboundSource) {
+        resolvedSourceId = inboundSource.id;
+        resolvedSourceSecret = inboundSource.secret;
+      }
+    }
+
+    const externalEventSuffix = raw?.data?.key?.id || raw?.data?.messages?.[0]?.key?.id || '';
+
     if (!eventName.includes('messages.upsert')) {
+      await logWebhookEvent({
+        admin,
+        organizationId,
+        sourceId: resolvedSourceId,
+        provider: 'evolution',
+        externalEventId: externalEventSuffix ? `skip-${externalEventSuffix}` : null,
+        payload: raw,
+        status: 'skipped',
+        error: `Evento ignorado: ${eventName || 'desconhecido'}`,
+      });
       return NextResponse.json({ ok: true, skipped: true, reason: 'Evento ignorado.' }, { status: 202 });
     }
 
@@ -862,16 +928,46 @@ export async function POST(req: Request) {
         raw?.data?.messages?.[0]?.key?.fromMe
     );
     if (fromMe) {
+      await logWebhookEvent({
+        admin,
+        organizationId,
+        sourceId: resolvedSourceId,
+        provider: 'evolution',
+        externalEventId: key?.id ? `skip-out-${key.id}` : null,
+        payload: raw,
+        status: 'skipped',
+        error: 'Mensagem enviada por mim (fromMe=true).',
+      });
       return NextResponse.json({ ok: true, skipped: true, reason: 'Mensagem enviada por mim.' }, { status: 202 });
     }
 
     const remoteJid = String(key?.remoteJid ?? data?.remoteJid ?? '');
     if (!remoteJid || remoteJid.endsWith('@g.us')) {
+      await logWebhookEvent({
+        admin,
+        organizationId,
+        sourceId: resolvedSourceId,
+        provider: 'evolution',
+        externalEventId: key?.id ? `skip-jid-${key.id}` : null,
+        payload: raw,
+        status: 'skipped',
+        error: remoteJid.endsWith('@g.us') ? 'Mensagem de grupo ignorada.' : 'Sem remetente valido (remoteJid ausente).',
+      });
       return NextResponse.json({ ok: true, skipped: true, reason: 'Sem remetente valido.' }, { status: 202 });
     }
 
     const phoneResolution = pickBestPhone(raw, data, key, fromMe);
     if (!phoneResolution.primary) {
+      await logWebhookEvent({
+        admin,
+        organizationId,
+        sourceId: resolvedSourceId,
+        provider: 'evolution',
+        externalEventId: key?.id ? `skip-phone-${key.id}` : null,
+        payload: raw,
+        status: 'skipped',
+        error: `Telefone invalido no evento (remoteJid: ${remoteJid}).`,
+      });
       return NextResponse.json({ ok: true, skipped: true, reason: 'Telefone invalido no evento.' }, { status: 202 });
     }
     const rawIdentifiers = collectRawIdentifierCandidates(raw);
@@ -880,26 +976,6 @@ export async function POST(req: Request) {
     const media = mediaInfoFromMessage(messageNode, raw, data);
     const pushName = String(data?.pushName ?? data?.messages?.[0]?.pushName ?? '').trim();
     const externalEventId = String(key?.id ?? data?.id ?? `${Date.now()}-${phoneResolution.primary}`).trim();
-
-    const instanceName = pickInstanceName(raw);
-    const admin = createStaticAdminClient();
-    const organizationId = await resolveOrganizationId(admin, instanceName, connectionId);
-
-    if ((!sourceId || !sourceSecret) && organizationId) {
-      const { data: inboundSource } = await admin
-        .from('integration_inbound_sources')
-        .select('id, secret')
-        .eq('organization_id', organizationId)
-        .eq('active', true)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (inboundSource) {
-        sourceId = inboundSource.id;
-        sourceSecret = inboundSource.secret;
-      }
-    }
 
     const persistedPhone =
       (await persistInboundMessage({
@@ -916,6 +992,17 @@ export async function POST(req: Request) {
         metadata: raw,
       })) ?? `+${phoneResolution.primary}`;
 
+    await logWebhookEvent({
+      admin,
+      organizationId,
+      sourceId: resolvedSourceId,
+      provider: 'evolution',
+      externalEventId,
+      payload: raw,
+      status: persistedPhone ? 'processed' : 'received',
+      error: null,
+    });
+
     const payload = {
       external_event_id: externalEventId,
       contact_name: pushName || `WhatsApp ${phoneResolution.primary}`,
@@ -925,9 +1012,7 @@ export async function POST(req: Request) {
       notes: text || media.caption || `Mensagem ${media.messageType} recebida via WhatsApp.`,
     };
 
-    // Forward para webhook-in é opcional. Se as envs não estiverem definidas,
-    // ainda persistimos mensagem inbound e retornamos sucesso.
-    if (!sourceId || !sourceSecret || !supabaseUrl) {
+    if (!resolvedSourceId || !resolvedSourceSecret || !supabaseUrl) {
       return NextResponse.json({
         ok: true,
         forwarded: false,
@@ -935,11 +1020,11 @@ export async function POST(req: Request) {
       });
     }
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/webhook-in/${sourceId}`, {
+    const response = await fetch(`${supabaseUrl}/functions/v1/webhook-in/${resolvedSourceId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Webhook-Secret': sourceSecret,
+        'X-Webhook-Secret': resolvedSourceSecret,
       },
       body: JSON.stringify(payload),
       cache: 'no-store',
