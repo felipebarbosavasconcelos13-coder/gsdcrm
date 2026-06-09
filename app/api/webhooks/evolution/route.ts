@@ -206,23 +206,33 @@ async function logWebhookEvent(input: {
   payload: unknown;
   status: string;
   error: string | null;
+  createdContactId?: string | null;
+  createdDealId?: string | null;
 }) {
-  if (!input.organizationId || !input.sourceId) return;
+  if (!input.organizationId) return;
   const dedupeId = input.externalEventId || `${input.status}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   try {
-    await input.admin.from('webhook_events_in').upsert(
-      {
-        organization_id: input.organizationId,
-        source_id: input.sourceId,
-        provider: input.provider,
-        external_event_id: dedupeId,
-        payload: input.payload ?? {},
-        status: input.status,
-        error: input.error ?? undefined,
-        received_at: new Date().toISOString(),
-      },
-      { onConflict: 'source_id, external_event_id', ignoreDuplicates: false }
-    );
+    const row: Record<string, unknown> = {
+      organization_id: input.organizationId,
+      source_id: input.sourceId || null,
+      provider: input.provider,
+      external_event_id: dedupeId,
+      payload: input.payload ?? {},
+      status: input.status,
+      received_at: new Date().toISOString(),
+    };
+    if (input.error) row.error = input.error;
+    if (input.createdContactId) row.created_contact_id = input.createdContactId;
+    if (input.createdDealId) row.created_deal_id = input.createdDealId;
+
+    if (input.sourceId) {
+      await input.admin.from('webhook_events_in').upsert(row, {
+        onConflict: 'source_id, external_event_id',
+        ignoreDuplicates: false,
+      });
+    } else {
+      await input.admin.from('webhook_events_in').insert(row);
+    }
   } catch {
     // Log é best-effort; não quebra o fluxo do webhook.
   }
@@ -732,8 +742,18 @@ async function persistInboundMessage(input: {
 
       if (contactError) {
         console.error('Erro ao criar contato automático no webhook:', contactError);
+        await logWebhookEvent({
+          admin,
+          organizationId,
+          sourceId: null,
+          provider: 'evolution',
+          externalEventId: input.externalMessageId,
+          payload: { phone: selectedPhone, contactName, error: String(contactError.message || contactError) },
+          status: 'error',
+          error: `Falha ao criar contato: ${String(contactError.message || contactError)}`,
+        });
       } else if (newContact?.id) {
-        // 4. Criar Deal na tabela deals
+        let createdDealId: string | null = null;
         if (boardData?.id && stageId) {
           const dealPayload = {
             organization_id: organizationId,
@@ -747,10 +767,51 @@ async function persistInboundMessage(input: {
             created_at: now,
             updated_at: now,
           };
-          const { error: dealError } = await admin.from('deals').insert(dealPayload);
+          const { data: newDeal, error: dealError } = await admin.from('deals').insert(dealPayload).select('id').single();
           if (dealError) {
             console.error('Erro ao criar deal automático no webhook:', dealError);
+            await logWebhookEvent({
+              admin,
+              organizationId,
+              sourceId: null,
+              provider: 'evolution',
+              externalEventId: input.externalMessageId,
+              payload: { phone: selectedPhone, contactName, contactId: newContact.id, error: String(dealError.message || dealError) },
+              status: 'error',
+              error: `Contato criado, mas deal falhou: ${String(dealError.message || dealError)}`,
+              createdContactId: newContact.id,
+            });
+          } else if (newDeal?.id) {
+            createdDealId = newDeal.id;
           }
+        } else if (!boardData?.id) {
+          console.error('Nenhum board ativo encontrado para criar deal automatico. Organizacao:', organizationId);
+          await logWebhookEvent({
+            admin,
+            organizationId,
+            sourceId: null,
+            provider: 'evolution',
+            externalEventId: input.externalMessageId,
+            payload: { phone: selectedPhone, contactName, contactId: newContact.id },
+            status: 'error',
+            error: 'Contato criado, mas nenhum board ativo encontrado para criar deal.',
+            createdContactId: newContact.id,
+          });
+        }
+
+        if (createdDealId) {
+          await logWebhookEvent({
+            admin,
+            organizationId,
+            sourceId: null,
+            provider: 'evolution',
+            externalEventId: input.externalMessageId,
+            payload: { phone: selectedPhone, contactName },
+            status: 'processed',
+            error: null,
+            createdContactId: newContact.id,
+            createdDealId,
+          });
         }
       }
     }
