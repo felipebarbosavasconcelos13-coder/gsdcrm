@@ -90,6 +90,7 @@
 - Processadas e otimizadas as novas logos fornecidas (`Logo_para_fundo_claro.png` e `Logo_para_fundo_escuro.png`). Criado o script Python `scratch/remove_background.py` que remove fundos externos sólidos por flood-fill a partir dos cantos, recorta margens vazias sobressalentes e exporta em formato WebP de alta performance (`public/logo_light.webp` e `public/logo_dark.webp`).
 - Integradas as novas logos WebP na sidebar do menu principal (`components/Layout.tsx`) e no rail de navegação (`components/navigation/NavigationRail.tsx`), substituindo o marcador genérico "N" por imagens que reagem de forma dinâmica e reativa ao tema do sistema (Claro/Escuro).
 - Executada validação de estabilidade completa pós-logos: linter (0 warnings), typecheck (sucesso), suite de testes (110 passados) e build de produção (compilado com sucesso).
+- Realizado o push das alterações locais e commits consolidados para o repositório remoto do GitHub (branch 'main') com sucesso.
 
 
 
