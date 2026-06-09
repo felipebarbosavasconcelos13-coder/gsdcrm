@@ -64,6 +64,8 @@ Abaixo está o mapeamento detalhado da estrutura física do projeto e a responsa
     *   [`lib/supabase/`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/supabase): Configuração e clientes do Supabase (Client, Server, Middleware, Service-role).
     *   [`lib/ai/`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/ai): Agente de IA (`crmAgent.ts`) e definição das 15 ferramentas nativas (`tools.ts`).
     *   [`lib/integrations/`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/integrations): Cliente de conexão com a API do WhatsApp/Evolution.
+        *   [`lib/integrations/evolution/webhook-helpers.ts`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/integrations/evolution/webhook-helpers.ts): Funções utilitárias para parsing de mensagens WhatsApp (texto, imagem, áudio, vídeo, documento, sticker), extração de números de telefone com suporte ao nono dígito brasileiro, variações de formato e seleção do melhor candidato de telefone via scoring.
+        *   [`lib/integrations/evolution/webhook-persistence.ts`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/integrations/evolution/webhook-persistence.ts): Lógica de persistência do webhook: `logWebhookEvent` (registro de eventos em `webhook_events_in`), `resolveOrganizationId` (resolução da organização pela instância Evolution), e `persistInboundMessage` (criação automática de contatos e deals para novos leads, com log detalhado de erros).
     *   [`lib/query/`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/lib/query): Chaves unificadas e hooks para consumo do TanStack Query.
 *   [`supabase/`](file:///c:/Users/felip/Desktop/Lista%20de%20CNPJ/Nova%20pasta/gsdcrm/supabase): Migrations de banco de dados (`migrations/`), funções serverless (`functions/`) e reset scripts.
 
@@ -102,7 +104,12 @@ A comunicação em tempo real via WhatsApp ocorre através da conexão com inst�
 *   **Suporte Multimídia**:
     *   **Mensagens Recebidas**: O webhook do Evolution salva o payload estruturado contendo o tipo da mensagem (texto, imagem, áudio, vídeo, stickers, etc.), capturando captions, mime-types e base64.
     *   **Fallback CDN**: Quando o base64 de mídias recebidas não vem no webhook, o backend invoca o endpoint `/chat/getBase64FromMediaMessage/{instance}` da Evolution para baixar o arquivo criptografado da CDN do WhatsApp e hidratá-lo localmente na tabela `whatsapp_messages`.
-    *   **Envio de Mídia**: O frontend captura mídias através do chat e envia arquivos. Formatos de áudio gravados localmente no microfone do navegador via `MediaRecorder` são normalizados retirando-se o prefixo de dados Data-URL (`data:audio/ogg;base64,...`) por meio do helper `toEvolutionMedia` antes do payload ser transmitido para a Evolution API.
+     *   **Envio de Mídia**: O frontend captura mídias através do chat e envia arquivos. Formatos de áudio gravados localmente no microfone do navegador via `MediaRecorder` são normalizados retirando-se o prefixo de dados Data-URL (`data:audio/ogg;base64,...`) por meio do helper `toEvolutionMedia` antes do payload ser transmitido para a Evolution API.
+*   **Logs e Diagnóstico**: Todo evento recebido pela Evolution API é logado na tabela `webhook_events_in` via `logWebhookEvent`, incluindo:
+    *   Eventos ignorados (`status: 'skipped'`) com o motivo (evento não-`messages.upsert`, mensagem própria, grupo, telefone inválido).
+    *   Eventos processados (`status: 'processed'`) com `created_contact_id` e `created_deal_id` quando um novo lead é criado.
+    *   Erros de criação de contato ou deal (`status: 'error'`) com detalhes do erro.
+    *   O painel **Configurações > Logs de Webhook** (`/settings/logs`) exibe esses eventos em tempo real com auto-refresh, permitindo diagnosticar falhas de integração.
 
 ### 🎨 4.3 Identidade Visual e Logos
 O sistema possui suporte para exibição dinâmica de logotipos de alta performance com fundo transparente nos formatos otimizados **WebP**:

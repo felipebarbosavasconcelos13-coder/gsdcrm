@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getBrPhoneVariations } from '@/app/api/webhooks/evolution/route';
+import { getBrPhoneVariations } from '@/lib/integrations/evolution/webhook-helpers';
 
 describe('Evolution Webhook Phone Variations', () => {
   it('correctly generates 13-digit variation for a 12-digit Brazilian number', () => {

@@ -92,6 +92,34 @@
 - Executada validação de estabilidade completa pós-logos: linter (0 warnings), typecheck (sucesso), suite de testes (110 passados) e build de produção (compilado com sucesso).
 - Realizado o push das alterações locais e commits consolidados para o repositório remoto do GitHub (branch 'main') com sucesso.
 
+## 2026-06-09 - Painel de Logs e Correções do Webhook
+
+- Criado arquivo de migration `20260609183000_nullable_webhook_source_id.sql` para tornar a coluna `source_id` nullable na tabela `webhook_events_in`, permitindo que eventos do webhook Evolution sem uma fonte inbound configurada sejam logados.
+- Migration aplicada com sucesso no banco de produção via Supabase Management API.
+- Corrigida a função `logWebhookEvent` para:
+  - Funcionar sem `source_id` (antes retornava silenciosamente, ignorando todos os eventos).
+  - Aceitar campos opcionais `createdContactId` e `createdDealId` para rastreamento de criação de leads.
+  - Utilizar `upsert` com `onConflict` quando `source_id` está disponível, e `insert` simples quando ausente.
+- Refatorado `persistInboundMessage` para logar todos os resultados de criação de contato/deal via `logWebhookEvent`:
+  - Erro ao criar contato → `status: 'error'` com detalhes do erro.
+  - Erro ao criar deal → `status: 'error'` com IDs do contato criado.
+  - Nenhum board ativo → `status: 'error'` com alerta.
+  - Sucesso (contato + deal) → `status: 'processed'` com `createdContactId` e `createdDealId`.
+- Corrigido o fluxo de criação de leads: diagnosticado que o `logWebhookEvent` não registrava eventos por falta de `source_id`, e que erros de criação de contato eram apenas enviados ao `console.error` (invisíveis no painel). Agora todos os erros são visíveis no painel de logs.
+- Criado o painel `WebhookLogPanel.tsx` em `features/settings/components/` com:
+  - Cards de resumo (processados, ignorados, mensagens inbound).
+  - Timeline de eventos com status, telefone, nome do contato, preview da mensagem e payload expansível.
+  - Seção de mensagens recebidas (inbound) da tabela `whatsapp_messages`.
+  - Auto-refresh a cada 10 segundos com toggle.
+- Adicionada aba principal "Logs de Webhook" em Configurações (`features/settings/SettingsPage.tsx`), acessível via `/settings/logs`.
+- Refatoração completa do webhook Evolution (`app/api/webhooks/evolution/route.ts`):
+  - Extraídos 1118 linhas monolíticas para 3 módulos especializados:
+    - `lib/integrations/evolution/webhook-helpers.ts` (371 linhas): parsing de mensagens WhatsApp, tipos de mídia, extração de telefone, candidatos de identificação, variações de nono dígito e seleção do melhor telefone.
+    - `lib/integrations/evolution/webhook-persistence.ts` (308 linhas): `logWebhookEvent`, `resolveOrganizationId` e `persistInboundMessage` com toda a lógica de criação de contatos/deals e log de erros.
+    - `app/api/webhooks/evolution/route.ts` (181 linhas): apenas o handler `POST` com validação, resolução de fonte inbound, orquestração e forward para webhook-in.
+  - Atualizado o import no teste `evolutionWebhook.test.ts` para apontar para o novo módulo `webhook-helpers.ts`.
+- Validado o fluxo completo de criação de leads com sucesso: contato "Relógios Benyar" (`+553182668783`) criado automaticamente como LEAD com deal no board "1. Captação / Leads", estágio "Novos Leads", confirmado via banco de dados e painel de logs.
+- Validada a estabilidade com `npm run lint` (zero warnings), `npm run typecheck` (sucesso), testes (todos aprovados) e `npm run build` (compilado com sucesso).
 
 
 
