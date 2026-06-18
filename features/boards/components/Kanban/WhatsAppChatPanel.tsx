@@ -59,6 +59,7 @@ type Props = {
   isOpen: boolean;
   contactName: string;
   phone: string;
+  contactAvatar?: string;
   dealTitle?: string;
   onClose: () => void;
 };
@@ -120,6 +121,16 @@ function getMediaSrc(message: WhatsAppMessage) {
   return '';
 }
 
+function getInitials(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase())
+    .join('') || 'C';
+}
+
 function MediaIcon({ type }: { type: WhatsAppMessageType }) {
   if (type === 'image' || type === 'sticker') return <ImageIcon size={16} />;
   if (type === 'video') return <Video size={16} />;
@@ -127,8 +138,9 @@ function MediaIcon({ type }: { type: WhatsAppMessageType }) {
   return <FileText size={16} />;
 }
 
-export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClose }: Props) {
+export function WhatsAppChatPanel({ isOpen, contactName, phone, contactAvatar, dealTitle, onClose }: Props) {
   const { addToast } = useOptionalToast();
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
@@ -147,6 +159,13 @@ export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClo
     const digits = toWhatsAppPhone(phone);
     return digits ? `+${digits}` : '';
   }, [phone]);
+
+  const avatarUrl = contactAvatar?.trim() || '';
+  const showAvatar = Boolean(avatarUrl && !avatarFailed);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarUrl]);
 
   const loadMessages = useCallback(async () => {
     if (!normalizedPhone || !isOpen) return;
@@ -382,11 +401,28 @@ export function WhatsAppChatPanel({ isOpen, contactName, phone, dealTitle, onClo
   return (
     <div className="fixed bottom-4 right-4 z-[70] flex h-[min(78vh,700px)] w-[min(460px,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900">
       <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-900/80">
-        <div className="min-w-0">
-          <div className="truncate text-base font-semibold text-slate-900 dark:text-white">{contactName}</div>
-          <div className="truncate text-xs text-emerald-600 dark:text-emerald-400">
-            {normalizedPhone || 'Sem telefone'}
-            {dealTitle ? ` - ${dealTitle}` : ''}
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-cyan-500/15 text-sm font-bold text-cyan-100 ring-1 ring-cyan-500/25">
+            {showAvatar ? (
+              <Image
+                src={avatarUrl}
+                alt={contactName ? `Foto de ${contactName}` : 'Foto do contato'}
+                width={40}
+                height={40}
+                className="h-full w-full object-cover"
+                unoptimized
+                onError={() => setAvatarFailed(true)}
+              />
+            ) : (
+              getInitials(contactName)
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-base font-semibold text-slate-900 dark:text-white">{contactName}</div>
+            <div className="truncate text-xs text-emerald-600 dark:text-emerald-400">
+              {normalizedPhone || 'Sem telefone'}
+              {dealTitle ? ` - ${dealTitle}` : ''}
+            </div>
           </div>
         </div>
         <button

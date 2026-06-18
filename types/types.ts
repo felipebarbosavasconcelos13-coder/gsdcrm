@@ -249,6 +249,7 @@ export interface DealView extends Deal {
   contactName: string;
   contactEmail: string;
   contactPhone?: string;
+  contactAvatar?: string;
   /** Nome/label do estágio atual (resolvido a partir do status UUID) */
   stageLabel: string;
 

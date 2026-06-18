@@ -269,6 +269,7 @@ export const useDealsView = (
         contactName: deal.contactId ? (contactMap[deal.contactId]?.name || 'Sem Contato') : 'Sem Contato',
         contactEmail: deal.contactId ? (contactMap[deal.contactId]?.email || '') : '',
         contactPhone: deal.contactId ? (contactMap[deal.contactId]?.phone || '') : '',
+        contactAvatar: deal.contactId ? (contactMap[deal.contactId]?.avatar || '') : '',
         stageLabel,
       };
     });

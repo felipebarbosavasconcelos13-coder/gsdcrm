@@ -1,4 +1,5 @@
 import React from 'react';
+import Image from 'next/image';
 import { Building2, Mail, Phone, Plus, Calendar, Pencil, Trash2, Globe, MoreHorizontal, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Contact, Company, ContactSortableColumn } from '@/types';
 import { StageBadge } from './ContactsStageTabs';
@@ -12,6 +13,46 @@ const PT_BR_DATE_TIME_FORMATTER = new Intl.DateTimeFormat('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
 });
+
+function getInitials(name: string | undefined | null) {
+    return (name || '?')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(part => part[0]?.toUpperCase())
+        .join('') || '?';
+}
+
+function ContactAvatar({ contact, onClick }: { contact: Contact; onClick: () => void }) {
+    const [imageFailed, setImageFailed] = React.useState(false);
+    const avatarUrl = contact.avatar?.trim();
+    const showImage = Boolean(avatarUrl && !imageFailed);
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className="w-9 h-9 rounded-full bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900 dark:to-primary-800 text-primary-700 dark:text-primary-200 flex items-center justify-center font-bold text-sm shadow-sm ring-2 ring-white dark:ring-white/5 hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-dark-card overflow-hidden"
+            aria-label={`Editar contato: ${contact.name || 'Sem nome'}`}
+            title={contact.name || 'Sem nome'}
+        >
+            {showImage ? (
+                <Image
+                    src={avatarUrl as string}
+                    alt={contact.name ? `Foto de ${contact.name}` : 'Foto do contato'}
+                    width={36}
+                    height={36}
+                    className="h-full w-full object-cover"
+                    unoptimized
+                    onError={() => setImageFailed(true)}
+                />
+            ) : (
+                getInitials(contact.name)
+            )}
+        </button>
+    );
+}
 
 /**
  * Formata uma data para exibição relativa (ex: "Hoje", "Ontem", "Há 3 dias", "15/11/2024")
@@ -226,15 +267,7 @@ export const ContactsList: React.FC<ContactsListProps> = ({
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
-                                            <button
-                                                type="button"
-                                                onClick={() => openEditModal(contact)}
-                                                className="w-9 h-9 rounded-full bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900 dark:to-primary-800 text-primary-700 dark:text-primary-200 flex items-center justify-center font-bold text-sm shadow-sm ring-2 ring-white dark:ring-white/5 hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-dark-card"
-                                                aria-label={`Editar contato: ${contact.name || 'Sem nome'}`}
-                                                title={contact.name || 'Sem nome'}
-                                            >
-                                                {(contact.name || '?').charAt(0)}
-                                            </button>
+                                            <ContactAvatar contact={contact} onClick={() => openEditModal(contact)} />
                                             <div>
                                                 <span className="font-semibold text-slate-900 dark:text-white block">{contact.name}</span>
                                             </div>

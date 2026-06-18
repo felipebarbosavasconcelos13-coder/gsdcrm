@@ -80,6 +80,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     dealTitle: string;
     contactName: string;
     contactPhone: string;
+    contactAvatar?: string;
   } | null>(null);
 
   const contactPhoneById = useMemo(() => {
@@ -90,11 +91,28 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     return map;
   }, [contacts]);
 
+  const contactAvatarById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of contacts ?? []) {
+      if (c?.id) map.set(c.id, c.avatar || '');
+    }
+    return map;
+  }, [contacts]);
+
   const contactPhoneByEmail = useMemo(() => {
     const map = new Map<string, string>();
     for (const c of contacts ?? []) {
       const email = (c?.email || '').trim().toLowerCase();
       if (email && c?.phone) map.set(email, c.phone);
+    }
+    return map;
+  }, [contacts]);
+
+  const contactAvatarByEmail = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of contacts ?? []) {
+      const email = (c?.email || '').trim().toLowerCase();
+      if (email && c?.avatar) map.set(email, c.avatar);
     }
     return map;
   }, [contacts]);
@@ -113,6 +131,25 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     for (const [name, phones] of grouped.entries()) {
       if (phones.size === 1) {
         map.set(name, Array.from(phones)[0]);
+      }
+    }
+    return map;
+  }, [contacts]);
+
+  const contactAvatarByUniqueName = useMemo(() => {
+    const grouped = new Map<string, Set<string>>();
+    for (const c of contacts ?? []) {
+      const name = (c?.name || '').trim().toLowerCase();
+      const avatar = (c?.avatar || '').trim();
+      if (!name || !avatar) continue;
+      if (!grouped.has(name)) grouped.set(name, new Set<string>());
+      grouped.get(name)?.add(avatar);
+    }
+
+    const map = new Map<string, string>();
+    for (const [name, avatars] of grouped.entries()) {
+      if (avatars.size === 1) {
+        map.set(name, Array.from(avatars)[0]);
       }
     }
     return map;
@@ -175,7 +212,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   };
 
   const handleOpenWhatsAppChat = useCallback(
-    (input: { dealId: string; dealTitle: string; contactName: string; contactPhone: string }) => {
+    (input: { dealId: string; dealTitle: string; contactName: string; contactPhone: string; contactAvatar?: string }) => {
       setChatSession(input);
     },
     []
@@ -261,6 +298,15 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           ? (contactPhoneByEmail.get((deal.contactEmail || '').trim().toLowerCase()) || '')
                           : (deal.contactName && deal.contactName !== 'Sem Contato'
                               ? (contactPhoneByUniqueName.get((deal.contactName || '').trim().toLowerCase()) || '')
+                               : ''))
+                  }
+                  contactAvatarOverride={
+                    deal.contactId
+                      ? (contactAvatarById.get(deal.contactId) || '')
+                      : (deal.contactEmail
+                          ? (contactAvatarByEmail.get((deal.contactEmail || '').trim().toLowerCase()) || '')
+                          : (deal.contactName && deal.contactName !== 'Sem Contato'
+                              ? (contactAvatarByUniqueName.get((deal.contactName || '').trim().toLowerCase()) || '')
                               : ''))
                   }
                   isRotting={isDealRotting(deal) && !deal.isWon && !deal.isLost}
@@ -297,6 +343,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           isOpen
           contactName={chatSession.contactName}
           phone={chatSession.contactPhone}
+          contactAvatar={chatSession.contactAvatar}
           dealTitle={chatSession.dealTitle}
           onClose={() => setChatSession(null)}
         />

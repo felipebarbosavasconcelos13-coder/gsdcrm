@@ -9,6 +9,7 @@ import { toWhatsAppPhone } from '@/lib/phone';
 interface DealCardProps {
   deal: DealView;
   contactPhoneOverride?: string;
+  contactAvatarOverride?: string;
   isRotting: boolean;
   activityStatus: string;
   isDragging: boolean;
@@ -26,6 +27,7 @@ interface DealCardProps {
     dealTitle: string;
     contactName: string;
     contactPhone: string;
+    contactAvatar?: string;
   }) => void;
   setLastMouseDownDealId: (id: string | null) => void;
   onMoveToStage?: (dealId: string) => void;
@@ -55,6 +57,7 @@ const buildWhatsAppUrl = (phoneRaw?: string, contactName?: string) => {
 const DealCardComponent: React.FC<DealCardProps> = ({
   deal,
   contactPhoneOverride,
+  contactAvatarOverride,
   isRotting,
   activityStatus,
   isDragging,
@@ -80,6 +83,7 @@ const DealCardComponent: React.FC<DealCardProps> = ({
   };
 
   const resolvedPhone = deal.contactPhone || contactPhoneOverride || '';
+  const resolvedAvatar = deal.contactAvatar || contactAvatarOverride || '';
   const whatsappUrl = buildWhatsAppUrl(resolvedPhone, deal.contactName);
 
   const handleOpenWhatsApp = (e: React.MouseEvent) => {
@@ -92,6 +96,7 @@ const DealCardComponent: React.FC<DealCardProps> = ({
         dealTitle: deal.title || '',
         contactName: deal.contactName || 'Contato',
         contactPhone: resolvedPhone,
+        contactAvatar: resolvedAvatar,
       });
       return;
     }

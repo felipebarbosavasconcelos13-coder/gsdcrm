@@ -163,12 +163,17 @@ export default function DealCockpitClient({ dealId }: { dealId?: string }) {
   }, [contactsById, selectedDeal]);
 
   const contactAvatarUrl = selectedContact?.avatar?.trim() || '';
+  const [contactAvatarFailed, setContactAvatarFailed] = useState(false);
   const contactInitials = (humanizeTestLabel(selectedContact?.name) || selectedContact?.name || 'Contato')
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'C';
+
+  useEffect(() => {
+    setContactAvatarFailed(false);
+  }, [contactAvatarUrl]);
 
   const selectedBoard = useMemo(() => {
     if (!selectedDeal) return null;
@@ -1725,7 +1730,7 @@ export default function DealCockpitClient({ dealId }: { dealId?: string }) {
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 shrink-0">
                 <div className="flex items-center gap-2">
                   <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-cyan-500/10 text-xs font-bold text-cyan-100 ring-1 ring-cyan-500/20">
-                    {contactAvatarUrl ? (
+                    {contactAvatarUrl && !contactAvatarFailed ? (
                       <Image
                         src={contactAvatarUrl}
                         alt={contact?.name ? `Foto de ${contact.name}` : 'Foto do contato'}
@@ -1733,6 +1738,7 @@ export default function DealCockpitClient({ dealId }: { dealId?: string }) {
                         height={36}
                         className="h-full w-full object-cover"
                         unoptimized
+                        onError={() => setContactAvatarFailed(true)}
                       />
                     ) : (
                       contactInitials

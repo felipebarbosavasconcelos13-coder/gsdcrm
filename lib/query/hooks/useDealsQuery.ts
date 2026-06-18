@@ -56,6 +56,8 @@ async function fetchDealsView(): Promise<DealView[]> {
       companyName: company?.name || 'Sem empresa',
       contactName: contact?.name || 'Sem contato',
       contactEmail: contact?.email || '',
+      contactPhone: contact?.phone || '',
+      contactAvatar: contact?.avatar || '',
       stageLabel: stageMap.get(deal.status) || 'Estagio nao identificado',
     };
   });
@@ -201,6 +203,7 @@ export const useCreateDeal = () => {
         contactName: '',
         contactEmail: '',
         contactPhone: '',
+        contactAvatar: '',
         stageLabel: '',
       } as DealView;
 
@@ -221,6 +224,7 @@ export const useCreateDeal = () => {
         contactName: '',
         contactEmail: '',
         contactPhone: '',
+        contactAvatar: '',
         stageLabel: '',
       } as DealView;
       
