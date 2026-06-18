@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { isAllowedOrigin } from '@/lib/security/sameOrigin';
 import { runSchemaMigration } from '@/lib/installer/migrations';
 import { bootstrapInstance } from '@/lib/installer/supabase';
-import { triggerProjectRedeploy, upsertProjectEnvs } from '@/lib/installer/vercel';
+import { getProject, triggerProjectRedeploy, upsertProjectEnvs } from '@/lib/installer/vercel';
 import {
   deployAllSupabaseEdgeFunctions,
   extractProjectRefFromSupabaseUrl,
@@ -52,6 +52,24 @@ const RunSchema = z
 
 type StepStatus = 'ok' | 'error' | 'warning' | 'running';
 type Step = { id: string; status: StepStatus; message?: string };
+
+type InstallerVercelProject = {
+  name?: string;
+  alias?: { domain: string }[];
+  targets?: { production?: { alias?: string[] } };
+};
+
+function resolveCanonicalPublicBaseUrl(project: InstallerVercelProject) {
+  const productionAliases = project.targets?.production?.alias ?? [];
+  const projectAliases = project.alias?.map((a) => a.domain) ?? [];
+  const allAliases = [...productionAliases, ...projectAliases].filter(Boolean);
+  const domain =
+    allAliases.find((alias) => alias.endsWith('.vercel.app')) ||
+    allAliases[0] ||
+    (project.name ? `${project.name}.vercel.app` : '');
+
+  return domain ? `https://${domain.replace(/^https?:\/\//i, '').replace(/\/$/, '')}` : '';
+}
 
 function updateStep(steps: Step[], id: string, status: StepStatus, message?: string) {
   const step = steps.find((item) => item.id === id);
@@ -175,10 +193,42 @@ export async function POST(req: Request) {
     }
 
     startStep('vercel_envs');
+    const projectResult = await getProject(
+      vercel.token,
+      vercel.projectId,
+      vercel.teamId || undefined
+    );
+    if (!projectResult.ok) {
+      finishStepWithStatus('vercel_envs', 'error', projectResult.error);
+      return json({ ok: false, steps, error: projectResult.error }, 500);
+    }
+
+    const publicBaseUrl = resolveCanonicalPublicBaseUrl(projectResult.project);
+    if (!publicBaseUrl) {
+      const error = 'Falha ao resolver URL publica do projeto na Vercel.';
+      finishStepWithStatus('vercel_envs', 'error', error);
+      return json({ ok: false, steps, error }, 500);
+    }
+
     await upsertProjectEnvs(
       vercel.token,
       vercel.projectId,
       [
+        {
+          key: 'EVOLUTION_WEBHOOK_PUBLIC_BASE_URL',
+          value: publicBaseUrl,
+          targets: envTargets,
+        },
+        {
+          key: 'NEXT_PUBLIC_APP_URL',
+          value: publicBaseUrl,
+          targets: envTargets,
+        },
+        {
+          key: 'NEXT_PUBLIC_SITE_URL',
+          value: publicBaseUrl,
+          targets: envTargets,
+        },
         {
           key: 'NEXT_PUBLIC_SUPABASE_URL',
           value: supabase.url,
