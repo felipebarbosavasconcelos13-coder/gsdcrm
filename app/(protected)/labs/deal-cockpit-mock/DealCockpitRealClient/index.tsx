@@ -1,5 +1,6 @@
 'use client';
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import Image from 'next/image';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   Activity as ActivityIcon, BadgeCheck, CalendarClock, Check, Copy, FileText, Filter, HeartPulse, Inbox, MessageCircle, Phone, Search, Sparkles, StickyNote, X
@@ -114,6 +115,14 @@ export default function DealCockpitRealClient({ dealId }: { dealId?: string }) {
     if (!selectedDeal) return null;
     return contacts.find((c) => c.id === selectedDeal.contactId) ?? null;
   }, [contacts, selectedDeal]);
+
+  const contactAvatarUrl = selectedContact?.avatar?.trim() || '';
+  const contactInitials = (selectedContact?.name || 'Contato')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'C';
 
   const selectedBoard = useMemo(() => {
     if (!selectedDeal) return null;
@@ -1437,12 +1446,23 @@ export default function DealCockpitRealClient({ dealId }: { dealId?: string }) {
             <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-white/10 bg-white/3">
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 shrink-0">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/10 ring-1 ring-cyan-500/20">
-                    <Sparkles className="h-4 w-4 text-cyan-300" />
+                  <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-cyan-500/10 text-xs font-bold text-cyan-100 ring-1 ring-cyan-500/20">
+                    {contactAvatarUrl ? (
+                      <Image
+                        src={contactAvatarUrl}
+                        alt={contact?.name ? `Foto de ${contact.name}` : 'Foto do contato'}
+                        width={36}
+                        height={36}
+                        className="h-full w-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      contactInitials
+                    )}
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-slate-100">GenialCRM Pilot</div>
-                    <div className="text-[11px] text-slate-500">Deal: {deal.title}</div>
+                    <div className="text-sm font-semibold text-slate-100">{contact?.name || 'Contato'}</div>
+                    <div className="text-[11px] text-slate-500">Chat do board · {deal.title}</div>
                   </div>
                 </div>
                 <Chip tone="success">Real</Chip>
@@ -1712,4 +1732,3 @@ export default function DealCockpitRealClient({ dealId }: { dealId?: string }) {
     </div>
   );
 }
-

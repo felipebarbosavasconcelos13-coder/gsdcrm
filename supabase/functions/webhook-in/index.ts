@@ -53,6 +53,9 @@ type LeadPayload = {
   title?: string;
   value?: number | string;
   company?: string;
+  avatar?: string;
+  profile_picture_url?: string;
+  profilePictureUrl?: string;
 };
 
 const corsHeaders = {
@@ -105,6 +108,12 @@ function toNullableString(v: unknown) {
   return s ? s : null;
 }
 
+function toNullableUrl(v: unknown) {
+  const s = toNullableString(v);
+  if (!s || !/^https?:\/\//i.test(s)) return null;
+  return s;
+}
+
 function toNullableNumber(v: unknown) {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string") {
@@ -150,6 +159,15 @@ function getDealValue(payload: LeadPayload) {
     toNullableNumber(payload.deal_value) ??
     toNullableNumber(payload.dealValue) ??
     toNullableNumber(payload.value) ??
+    null
+  );
+}
+
+function getAvatarUrl(payload: LeadPayload) {
+  return (
+    toNullableUrl(payload.avatar) ||
+    toNullableUrl(payload.profile_picture_url) ||
+    toNullableUrl(payload.profilePictureUrl) ||
     null
   );
 }
@@ -205,6 +223,7 @@ Deno.serve(async (req) => {
   const companyName = getCompanyName(payload);
   const dealTitleFromPayload = getDealTitle(payload);
   const dealValue = getDealValue(payload);
+  const avatarUrl = getAvatarUrl(payload);
 
   // 1) Auditoria/dedupe (idempotente quando external_event_id existe)
   if (externalEventId) {
@@ -299,7 +318,7 @@ Deno.serve(async (req) => {
 
     const { data: existingContacts, error: findErr } = await supabase
       .from("contacts")
-      .select("id, name, email, phone, organization_id")
+      .select("id, name, email, phone, organization_id, avatar")
       .eq("organization_id", source.organization_id)
       .or(filters.join(","))
       .limit(1);
@@ -314,6 +333,7 @@ Deno.serve(async (req) => {
       if (leadName && (!existing.name || existing.name === "Sem nome")) updates.name = leadName;
       if (leadEmail && !existing.email) updates.email = leadEmail;
       if (leadPhone && !existing.phone) updates.phone = leadPhone;
+      if (avatarUrl && !existing.avatar) updates.avatar = avatarUrl;
       if (companyName) updates.company_name = companyName;
       if (clientCompanyId) updates.client_company_id = clientCompanyId;
       if (payload.notes) updates.notes = payload.notes;
@@ -337,6 +357,7 @@ Deno.serve(async (req) => {
           name: leadName || leadEmail || leadPhone || "Lead",
           email: leadEmail,
           phone: leadPhone,
+          avatar: avatarUrl,
           source: payload.source || "webhook",
           company_name: companyName,
           client_company_id: clientCompanyId,

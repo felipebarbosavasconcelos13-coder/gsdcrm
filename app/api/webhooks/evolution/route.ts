@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createStaticAdminClient } from '@/lib/supabase/staticAdminClient';
 import {
+  fetchProfilePictureUrlFromEvolution,
+  type EvolutionConfig,
+} from '@/lib/integrations/evolution/client';
+import {
   getTextFromMessageNode,
   mediaInfoFromMessage,
   normalizeEvolutionEventName,
@@ -14,6 +18,85 @@ import {
   resolveOrganizationId,
   persistInboundMessage,
 } from '@/lib/integrations/evolution/webhook-persistence';
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (text && /^https?:\/\//i.test(text)) return text;
+  }
+  return null;
+}
+
+function profilePictureUrlFromPayload(raw: any) {
+  return firstText(
+    raw?.profilePictureUrl,
+    raw?.profilePicUrl,
+    raw?.picture,
+    raw?.data?.profilePictureUrl,
+    raw?.data?.profilePicUrl,
+    raw?.data?.picture,
+    raw?.data?.profilePicture,
+    raw?.data?.contact?.profilePictureUrl,
+    raw?.data?.contact?.profilePicUrl,
+    raw?.data?.contact?.picture,
+    raw?.data?.messages?.[0]?.profilePictureUrl,
+    raw?.data?.messages?.[0]?.profilePicUrl,
+    raw?.data?.messages?.[0]?.picture
+  );
+}
+
+async function getEvolutionConfigForWebhook(input: {
+  admin: ReturnType<typeof createStaticAdminClient>;
+  organizationId: string | null;
+  connectionId: string;
+  instanceName: string;
+}): Promise<EvolutionConfig | null> {
+  if (!input.organizationId) return null;
+
+  let query = input.admin
+    .from('organization_whatsapp_connections')
+    .select('instance_url, instance_name, api_key')
+    .eq('organization_id', input.organizationId)
+    .eq('provider', 'evolution')
+    .eq('active', true);
+
+  if (input.connectionId) {
+    query = query.eq('id', input.connectionId);
+  } else if (input.instanceName) {
+    query = query.ilike('instance_name', input.instanceName);
+  }
+
+  const { data } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (!data?.instance_url || !data?.instance_name || !data?.api_key) return null;
+
+  return {
+    baseUrl: String(data.instance_url).replace(/\/$/, ''),
+    instance: String(data.instance_name),
+    apiKey: String(data.api_key),
+  };
+}
+
+async function fetchContactProfilePictureUrl(input: {
+  raw: any;
+  admin: ReturnType<typeof createStaticAdminClient>;
+  organizationId: string | null;
+  connectionId: string;
+  instanceName: string;
+  phoneDigits: string;
+}) {
+  const fromPayload = profilePictureUrlFromPayload(input.raw);
+  if (fromPayload) return fromPayload;
+
+  const config = await getEvolutionConfigForWebhook(input);
+  if (!config) return null;
+
+  const result = await fetchProfilePictureUrlFromEvolution({
+    config,
+    number: input.phoneDigits,
+  });
+
+  return result.profilePictureUrl || null;
+}
 
 export async function POST(req: Request) {
   try {
@@ -130,6 +213,14 @@ export async function POST(req: Request) {
     const media = mediaInfoFromMessage(messageNode, raw, data);
     const pushName = String(data?.pushName ?? data?.messages?.[0]?.pushName ?? '').trim();
     const externalEventId = String(key?.id ?? data?.id ?? `${Date.now()}-${phoneResolution.primary}`).trim();
+    const profilePictureUrl = await fetchContactProfilePictureUrl({
+      raw,
+      admin,
+      organizationId,
+      connectionId,
+      instanceName,
+      phoneDigits: phoneResolution.primary,
+    });
 
     const persistedPhone =
       (await persistInboundMessage({
@@ -143,6 +234,7 @@ export async function POST(req: Request) {
         message: text || media.caption || '',
         media,
         externalMessageId: externalEventId,
+        profilePictureUrl,
         metadata: raw,
       })) ?? `+${phoneResolution.primary}`;
 
@@ -164,6 +256,8 @@ export async function POST(req: Request) {
       source: 'evolution-whatsapp',
       deal_title: pushName ? `WhatsApp - ${pushName}` : `WhatsApp - ${phoneResolution.primary}`,
       notes: text || media.caption || `Mensagem ${media.messageType} recebida via WhatsApp.`,
+      avatar: profilePictureUrl,
+      profile_picture_url: profilePictureUrl,
     };
 
     if (!resolvedSourceId || !resolvedSourceSecret || !supabaseUrl) {

@@ -123,6 +123,7 @@ export async function persistInboundMessage(input: {
   message: string;
   media: MediaInfo;
   externalMessageId: string;
+  profilePictureUrl?: string | null;
   metadata: unknown;
 }) {
   try {
@@ -222,7 +223,7 @@ export async function persistInboundMessage(input: {
 
     const { data: selectedContactRows } = await admin
       .from('contacts')
-      .select('id, phone')
+      .select('id, phone, avatar')
       .eq('organization_id', organizationId)
       .in('phone', selectedPhoneVariations)
       .limit(1);
@@ -239,6 +240,15 @@ export async function persistInboundMessage(input: {
     if (selectedContactRows && selectedContactRows.length > 0) {
       selectedPhone = selectedContactRows[0].phone;
       selectedIsKnown = true;
+      const existingAvatar = String(selectedContactRows[0].avatar || '').trim();
+      const profilePictureUrl = String(input.profilePictureUrl || '').trim();
+      if (profilePictureUrl && !existingAvatar) {
+        await admin
+          .from('contacts')
+          .update({ avatar: profilePictureUrl, updated_at: new Date().toISOString() })
+          .eq('organization_id', organizationId)
+          .eq('id', selectedContactRows[0].id);
+      }
     } else if (selectedOutRows && selectedOutRows.length > 0) {
       selectedPhone = selectedOutRows[0].phone;
       selectedIsKnown = true;
@@ -273,6 +283,7 @@ export async function persistInboundMessage(input: {
         organization_id: organizationId,
         name: contactName,
         phone: selectedPhone,
+        avatar: input.profilePictureUrl || null,
         created_at: now,
         updated_at: now,
         status: 'ACTIVE',

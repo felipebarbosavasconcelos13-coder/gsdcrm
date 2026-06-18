@@ -38,6 +38,11 @@ export type EvolutionGetMediaBase64Input = {
   convertToMp4?: boolean;
 };
 
+export type EvolutionFetchProfilePictureInput = {
+  config?: EvolutionConfig | null;
+  number: string;
+};
+
 export type EvolutionConnectionCheckResult = {
   ok: boolean;
   status: number;
@@ -156,6 +161,27 @@ function extractMediaBase64Payload(payload: any) {
   );
 
   return { base64, mimetype };
+}
+
+function extractProfilePictureUrl(payload: any) {
+  return firstText(
+    payload?.profilePictureUrl,
+    payload?.profilePicUrl,
+    payload?.picture,
+    payload?.url,
+    payload?.data?.profilePictureUrl,
+    payload?.data?.profilePicUrl,
+    payload?.data?.picture,
+    payload?.data?.url,
+    payload?.result?.profilePictureUrl,
+    payload?.result?.profilePicUrl,
+    payload?.result?.picture,
+    payload?.result?.url,
+    payload?.response?.profilePictureUrl,
+    payload?.response?.profilePicUrl,
+    payload?.response?.picture,
+    payload?.response?.url
+  );
 }
 
 function asStateToken(value: unknown): string {
@@ -660,6 +686,75 @@ export async function getMediaBase64FromEvolution(input: EvolutionGetMediaBase64
     status: response.status,
     base64: media.base64,
     mimetype: media.mimetype,
+    payload,
+  } as const;
+}
+
+export async function fetchProfilePictureUrlFromEvolution(input: EvolutionFetchProfilePictureInput) {
+  const config = normalizeEvolutionConfig(input.config ?? getEvolutionConfig());
+  if (!config) {
+    return {
+      ok: false,
+      status: 409,
+      profilePictureUrl: null,
+      error: 'Evolution API nao configurada no servidor.',
+    } as const;
+  }
+
+  const number = String(input.number || '').replace(/\D/g, '');
+  if (!number) {
+    return {
+      ok: false,
+      status: 400,
+      profilePictureUrl: null,
+      error: 'Numero invalido para buscar foto de perfil.',
+    } as const;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/chat/fetchProfilePictureUrl/${encodeURIComponent(config.instance)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: config.apiKey,
+      },
+      body: JSON.stringify({ number }),
+      cache: 'no-store',
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Falha ao acessar Evolution API.';
+    return {
+      ok: false,
+      status: 502,
+      profilePictureUrl: null,
+      error: `Falha ao acessar Evolution API: ${message}`,
+    } as const;
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  const profilePictureUrl = extractProfilePictureUrl(payload as any);
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      profilePictureUrl,
+      error: extractEvolutionError(payload as any, response.status),
+      payload,
+    } as const;
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    profilePictureUrl,
     payload,
   } as const;
 }
